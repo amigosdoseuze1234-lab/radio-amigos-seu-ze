@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rádio Amigos do Seu Zé</title>
+<link rel="stylesheet" href="./css/style.css">
+<link rel="manifest" href="./manifest.json">
+<link href="https://fonts.googleapis.com/css2?family=Righteous&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+
+<!-- SPLASH -->
+<div class="splash" id="splash">
+  <div class="splash-icon">🎙️</div>
+  <h1>RÁDIO<br><span>AMIGOS DO SEU ZÉ</span></h1>
+  <p>Carregando transmissão...</p>
+  <div class="loading-bar"></div>
+</div>
+
+<!-- BACKGROUND -->
+<div class="bg-animation">
+  <div class="orb orb-1"></div>
+  <div class="orb orb-2"></div>
+  <div class="orb orb-3"></div>
+</div>
+
+<div class="particles" id="particles"></div>
+
+<!-- MAIN CONTAINER -->
+<div class="container">
+
+  <div class="logo">
+    <div class="logo-icon">🎙️</div>
+    Rádio Amigos do Seu Zé
+  </div>
+
+  <div class="status" id="status">
+    <span class="live-dot"></span>
+    <span id="statusText">AO VIVO</span>
+  </div>
+
+  <div class="player-card">
+    <div class="cover-art">
+      <img src="https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=400&h=400&fit=crop" alt="Capa">
+      <div class="cover-overlay"><span>Ponto de Umbanda</span></div>
+    </div>
+
+    <div class="visualizer" id="visualizer">
+      <div class="bar"></div><div class="bar"></div><div class="bar"></div>
+      <div class="bar"></div><div class="bar"></div><div class="bar"></div>
+      <div class="bar"></div><div class="bar"></div><div class="bar"></div>
+      <div class="bar"></div><div class="bar"></div><div class="bar"></div>
+      <div class="bar"></div><div class="bar"></div><div class="bar"></div>
+    </div>
+
+    <div class="track-info">
+      <div class="label">Tocando agora</div>
+      <div class="title" id="trackTitle">Carregando...</div>
+      <div class="artist" id="trackArtist">Ponto de Umbanda</div>
+    </div>
+
+    <div class="progress-container" id="progressContainer">
+      <div class="progress-bar" id="progressBar"></div>
+    </div>
+
+    <div class="time-display">
+      <span id="currentTime">0:00</span>
+      <span id="totalTime">0:00</span>
+    </div>
+
+    <div class="player">
+      <audio id="radioPlayer" preload="none">
+        <source src="/api/stream" type="audio/mpeg">
+      </audio>
+    </div>
+
+    <div class="controls">
+      <button class="btn-sec" id="btnPrev" title="Anterior">⏮</button>
+      <button class="btn-play" id="btnPlay" title="Play/Pause">▶</button>
+      <button class="btn-sec" id="btnNext" title="Próxima">⏭</button>
+      <div class="volume-slider">
+        <button class="btn-sec" id="btnVolume" title="Volume">🔊</button>
+        <div class="volume-popup" id="volumePopup">
+          <input type="range" id="volumeRange" min="0" max="100" value="80">
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="playlist-section">
+    <div class="playlist-header">
+      <h3>Playlist</h3>
+      <span class="count" id="playlistCount">24 músicas</span>
+    </div>
+    <div class="playlist" id="playlist"></div>
+  </div>
+
+  <div class="extra-info">
+    <div class="info-card">
+      <div class="icon">🎧</div>
+      <div class="value" id="listeners">0</div>
+      <div class="label">Ouvintes</div>
+    </div>
+    <div class="info-card">
+      <div class="icon">⏱️</div>
+      <div class="value" id="uptime">0:00</div>
+      <div class="label">No ar</div>
+    </div>
+  </div>
+
+  <div class="footer">
+    <p>🎙️ Rádio Amigos do Seu Zé © 2026</p>
+    <p>Sua Rádio Comunitária de Pontos de Umbanda</p>
+  </div>
+
+</div>
+
+<div id="radio-toast"></div>
+
+<script src="./js/app.js"></script>
+</body>
+</html>
