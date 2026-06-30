@@ -2,5 +2,3 @@ node_modules/
 logs/*.log
 .env
 .DS_Store
-*.mp3
-audio/
