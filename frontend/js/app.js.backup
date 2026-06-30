@@ -148,25 +148,24 @@ function loadPlaylist(list) {
 // ===== TOCAR MÚSICA ESPECÍFICA =====
 function playTrack(index) {
   if (!playlist[index]) return;
-  
+
   currentTrackIndex = index;
   const track = playlist[index];
-  
+
   // Atualizar UI
   const items = playlistEl.querySelectorAll('.playlist-item');
   items.forEach((item, i) => {
     item.classList.toggle('active', i === index);
   });
-  
+
   trackTitle.textContent = track.title;
   trackArtist.textContent = track.artist || 'Ponto de Umbanda';
-  
-  // Tocar o MP3 diretamente - CORRIGIDO
-  const fileName = track.file.replace('audio/', '');
-  const audioPath = `./audio/${fileName}`;
+
+  // Tocar o MP3 diretamente
+  const audioPath = `./audio/${encodeURIComponent(track.file.replace('audio/', ''))}`;
   player.src = audioPath;
   player.load();
-  
+
   player.play().then(() => {
     btnPlay.textContent = '⏸';
     btnPlay.classList.add('playing');
@@ -197,9 +196,11 @@ function togglePlay() {
         isPlaying = true;
         showToast('Tocando agora!');
       }).catch(() => {
+        // Se não conseguir tocar, tocar a primeira música
         playTrack(currentTrackIndex);
       });
     } else {
+      // Se não tiver src, tocar a primeira música
       playTrack(currentTrackIndex);
     }
   }
@@ -247,6 +248,7 @@ btnNext.addEventListener('click', () => {
 });
 
 player.addEventListener('ended', () => {
+  // Tocar próxima música automaticamente
   const newIndex = (currentTrackIndex + 1) % playlist.length;
   playTrack(newIndex);
 });
@@ -266,7 +268,8 @@ async function init() {
     if (data.success) {
       updateState(data.data);
       loadPlaylist(data.data.playlist);
-      
+
+      // Pré-carregar a primeira música
       if (playlist.length > 0) {
         trackTitle.textContent = playlist[0].title;
       }
