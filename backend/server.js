@@ -10,176 +10,167 @@ const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
+// ================= CONFIG =================
 const PORT = process.env.PORT || 10000;
 const NODE_ENV = process.env.NODE_ENV || 'development';
-const ICECAST_HOST = process.env.ICECAST_HOST || 'localhost';
-const ICECAST_PORT = process.env.ICECAST_PORT || 8000;
-const ICECAST_MOUNT = process.env.ICECAST_MOUNT || '/stream';
-const STREAM_URL = `http://${ICECAST_HOST}:${ICECAST_PORT}${ICECAST_MOUNT}`;
-const FRONTEND_URL = process.env.FRONTEND_URL || `http://localhost:${PORT}`;
 
-// ===== MIDDLEWARE =====
+const FRONTEND_DIR = path.resolve(__dirname, '../frontend');
+const AUDIO_DIR = path.join(FRONTEND_DIR, 'audio');
+
+// ================= MIDDLEWARE =================
 app.use(cors({
-  origin: NODE_ENV === 'production' ? [FRONTEND_URL, 'https://radioamigosdoseuze.com.br'] : '*',
+  origin: NODE_ENV === 'production'
+    ? ['https://radioamigosdoseuze.com.br']
+    : '*',
   credentials: true
 }));
+
 app.use(express.json());
 
-// ===== LOGGING =====
+// ================= LOG SYSTEM =================
 const LOG_DIR = path.join(__dirname, '../logs');
-if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR, { recursive: true });
-
-function log(level, message) {
-  const timestamp = new Date().toISOString();
-  const logEntry = `[${timestamp}] [${level.toUpperCase()}] ${message}\n`;
-  console.log(logEntry.trim());
-  fs.appendFileSync(path.join(LOG_DIR, 'server.log'), logEntry);
+if (!fs.existsSync(LOG_DIR)) {
+  fs.mkdirSync(LOG_DIR, { recursive: true });
 }
 
-// ===== SERVIR ARQUIVOS ESTÁTICOS =====
-app.use(express.static(path.join(__dirname, '../frontend')));
+function log(level, message) {
+  const line = `[${new Date().toISOString()}] [${level.toUpperCase()}] ${message}\n`;
+  console.log(line.trim());
+  fs.appendFileSync(path.join(LOG_DIR, 'server.log'), line);
+}
 
-// ===== PLAYLIST FIXA =====
+// ================= STATIC FILES =================
+app.use(express.static(FRONTEND_DIR));
+app.use('/audio', express.static(AUDIO_DIR));
+
+// ================= PLAYLIST =================
 const PLAYLIST = [
-  { file: "audio/7 Espadas Ogum.mp3", title: "7 Espadas Ogum", artist: "Ponto de Umbanda", duration: "3:42" },
-  { file: "audio/Altar E Tronqueira.mp3", title: "Altar E Tronqueira", artist: "Ponto de Umbanda", duration: "4:15" },
-  { file: "audio/a vida e assim mesmo como ela e.mp3", title: "A Vida É Assim Mesmo Como Ela É", artist: "Ponto de Umbanda", duration: "3:28" },
-  { file: "audio/Batismo.mp3", title: "Batismo", artist: "Ponto de Umbanda", duration: "3:55" },
-  { file: "audio/Benzimento da Lua.mp3", title: "Benzimento da Lua", artist: "Ponto de Umbanda", duration: "4:02" },
-  { file: "audio/Caboclo Pedra Preta.mp3", title: "Caboclo Pedra Preta", artist: "Ponto de Umbanda", duration: "3:33" },
-  { file: "audio/ciganos.mp3", title: "Ciganos", artist: "Ponto de Umbanda", duration: "3:47" },
-  { file: "audio/Exu é lei.mp3", title: "Exu É Lei", artist: "Ponto de Umbanda", duration: "3:18" },
-  { file: "audio/jangadeiro.mp3", title: "Jangadeiro", artist: "Ponto de Umbanda", duration: "4:05" },
-  { file: "audio/João Batista .mp3", title: "João Batista", artist: "Ponto de Umbanda", duration: "3:51" },
-  { file: "audio/Jurema .mp3", title: "Jurema", artist: "Ponto de Umbanda", duration: "3:39" },
-  { file: "audio/Luz de Oxalá.mp3", title: "Luz de Oxalá", artist: "Ponto de Umbanda", duration: "4:12" },
-  { file: "audio/marinheiros .mp3", title: "Marinheiros", artist: "Ponto de Umbanda", duration: "3:25" },
-  { file: "audio/odociaba.mp3", title: "Odociaba", artist: "Ponto de Umbanda", duration: "3:58" },
-  { file: "audio/Ogum Beira Mar.mp3", title: "Ogum Beira Mar", artist: "Ponto de Umbanda", duration: "4:20" },
-  { file: "audio/ogum .mp3", title: "Ogum", artist: "Ponto de Umbanda", duration: "3:44" },
-  { file: "audio/Oxossi é oke aro.mp3", title: "Oxossi É Oke Aro", artist: "Ponto de Umbanda", duration: "3:31" },
-  { file: "audio/Passo da Malandragem.mp3", title: "Passo da Malandragem", artist: "Ponto de Umbanda", duration: "3:56" },
-  { file: "audio/preto velho .mp3", title: "Preto Velho", artist: "Ponto de Umbanda", duration: "4:08" },
-  { file: "audio/quatro da manhã.mp3", title: "Quatro da Manhã", artist: "Ponto de Umbanda", duration: "3:22" },
-  { file: "audio/Rosa Caveira.mp3", title: "Rosa Caveira", artist: "Ponto de Umbanda", duration: "3:49" },
-  { file: "audio/santo Antônio.mp3", title: "Santo Antônio", artist: "Ponto de Umbanda", duration: "4:01" },
-  { file: "audio/Saudação às Sete Linhas.mp3", title: "Saudação às Sete Linhas", artist: "Ponto de Umbanda", duration: "3:37" },
-  { file: "audio/Xangô é corisco.mp3", title: "Xangô É Corisco", artist: "Ponto de Umbanda", duration: "3:53" }
+  { file: "7 Espadas Ogum.mp3", title: "7 Espadas Ogum", artist: "Ponto de Umbanda" },
+  { file: "Altar E Tronqueira.mp3", title: "Altar E Tronqueira", artist: "Ponto de Umbanda" },
+  { file: "a vida e assim mesmo como ela e.mp3", title: "A Vida É Assim Mesmo", artist: "Ponto de Umbanda" },
+  { file: "Batismo.mp3", title: "Batismo", artist: "Ponto de Umbanda" },
+  { file: "Benzimento da Lua.mp3", title: "Benzimento da Lua", artist: "Ponto de Umbanda" },
+  { file: "Caboclo Pedra Preta.mp3", title: "Caboclo Pedra Preta", artist: "Ponto de Umbanda" },
+  { file: "ciganos.mp3", title: "Ciganos", artist: "Ponto de Umbanda" },
+  { file: "Exu é lei.mp3", title: "Exu É Lei", artist: "Ponto de Umbanda" },
+  { file: "jangadeiro.mp3", title: "Jangadeiro", artist: "Ponto de Umbanda" },
+  { file: "João Batista.mp3", title: "João Batista", artist: "Ponto de Umbanda" },
+  { file: "Jurema.mp3", title: "Jurema", artist: "Ponto de Umbanda" },
+  { file: "Luz de Oxalá.mp3", title: "Luz de Oxalá", artist: "Ponto de Umbanda" }
 ];
 
-// ===== ESTADO DA RÁDIO =====
+// ================= STATE =================
 let state = {
-  isLive: true,
-  currentTrack: { title: PLAYLIST[0].title, artist: PLAYLIST[0].artist, timestamp: Date.now() },
   listeners: 0,
   peakListeners: 0,
-  bitrate: 128,
-  uptime: 0,
-  sourceConnected: true,
-  lastUpdate: Date.now(),
-  djName: 'AutoDJ',
+  currentTrack: PLAYLIST[0],
   playlist: PLAYLIST,
   history: [],
-  isPlaying: true,
-  serverStartTime: Date.now()
+  uptime: 0,
+  isLive: true,
+  lastUpdate: Date.now()
 };
 
-// ===== CLIENTES WEBSOCKET =====
-let clients = new Set();
+// ================= WEBSOCKET =================
+const clients = new Set();
 
 function broadcast(data) {
   const msg = JSON.stringify(data);
-  clients.forEach(w => {
-    if (w.readyState === WebSocket.OPEN) w.send(msg);
+  clients.forEach(ws => {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(msg);
+    }
   });
 }
 
-function updateMetadata(title, artist = 'Ponto de Umbanda') {
-  const track = { title, artist, timestamp: Date.now() };
-  state.currentTrack = track;
-  state.lastUpdate = Date.now();
-  state.history.unshift(track);
-  if (state.history.length > 50) state.history.pop();
-  broadcast({ type: 'metadata', data: track });
-  log('info', `Metadata: ${title} - ${artist}`);
-}
-
-// ===== WEBSOCKET HANDLERS =====
 wss.on('connection', (ws, req) => {
-  const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
   clients.add(ws);
   state.listeners = clients.size;
-  if (state.listeners > state.peakListeners) state.peakListeners = state.listeners;
 
-  log('info', `Cliente conectado: ${ip} | Total: ${state.listeners}`);
+  log('info', `Cliente conectado. Total: ${state.listeners}`);
 
   ws.send(JSON.stringify({ type: 'state', data: state }));
   ws.send(JSON.stringify({ type: 'playlist', data: state.playlist }));
 
-  ws.on('message', (msg) => {
+  ws.on('message', (message) => {
     try {
-      const d = JSON.parse(msg);
-      if (d.type === 'update_metadata' && d.title) {
-        updateMetadata(d.title, d.artist);
+      const data = JSON.parse(message);
+
+      if (data.type === 'ping') {
+        ws.send(JSON.stringify({ type: 'pong', time: Date.now() }));
       }
-      if (d.type === 'ping') {
-        ws.send(JSON.stringify({ type: 'pong', timestamp: Date.now() }));
+
+      if (data.type === 'update_metadata') {
+        state.currentTrack = {
+          title: data.title,
+          artist: data.artist || 'Ponto de Umbanda'
+        };
+
+        state.lastUpdate = Date.now();
+
+        broadcast({ type: 'metadata', data: state.currentTrack });
       }
-    } catch (e) {
-      log('error', `Erro WS: ${e.message}`);
+
+    } catch (err) {
+      log('error', `WS error: ${err.message}`);
     }
   });
 
   ws.on('close', () => {
     clients.delete(ws);
     state.listeners = clients.size;
-    log('info', `Cliente desconectado | Total: ${state.listeners}`);
+    log('info', `Cliente desconectado. Total: ${state.listeners}`);
   });
 });
 
-// ===== ROTAS API =====
+// ================= API ROUTES =================
 app.get('/api/status', (req, res) => {
-  res.json({ success: true, data: state });
+  res.json(state);
 });
 
 app.get('/api/playlist', (req, res) => {
-  res.json({ success: true, data: state.playlist });
+  res.json(state.playlist);
 });
 
 app.get('/api/history', (req, res) => {
-  res.json({ success: true, data: state.history.slice(0, 20) });
+  res.json(state.history.slice(0, 30));
 });
 
+// STREAM ATUAL CORRIGIDO
+app.get('/api/stream', (req, res) => {
+  const track = state.currentTrack;
+
+  const fileUrl =
+    `${req.protocol}://${req.get('host')}/audio/${encodeURIComponent(track.file)}`;
+
+  res.json({
+    stream: fileUrl,
+    title: track.title,
+    artist: track.artist
+  });
+});
+
+// HEALTH CHECK
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
     uptime: process.uptime(),
     wsClients: clients.size,
-    isLive: state.isLive,
-    currentTrack: state.currentTrack,
-    timestamp: Date.now(),
-    env: NODE_ENV
+    currentTrack: state.currentTrack
   });
 });
 
-// ===== BROADCAST PERIÓDICO =====
+// ================= LOOP =================
 setInterval(() => {
   state.uptime = process.uptime();
   state.listeners = clients.size;
+
   broadcast({ type: 'state', data: state });
 }, 10000);
 
-// ===== INICIAR SERVIDOR =====
+// ================= START SERVER =================
 server.listen(PORT, '0.0.0.0', () => {
-  log('info', `
-╔══════════════════════════════════════════════════════╗
-║     🎧 RÁDIO AMIGOS DO SEU ZÉ - SERVIDOR             ║
-╠══════════════════════════════════════════════════════╣
-║  📡 Web:     http://0.0.0.0:${PORT}                    ║
-║  🔌 WS:      ws://0.0.0.0:${PORT}                    ║
-║  🌍 Ambiente: ${NODE_ENV.padEnd(36)}║
-╚══════════════════════════════════════════════════════╝
-  `);
+  log('info', `Servidor rodando na porta ${PORT}`);
 });
 
 module.exports = { app, server, wss };
