@@ -14,8 +14,8 @@ const wss = new WebSocket.Server({ server });
 const PORT = process.env.PORT || 10000;
 const NODE_ENV = process.env.NODE_ENV || 'development';
 
-// Ajuste seguro para Render / produção
-const ROOT_DIR = path.resolve(__dirname, '..');
+// 🔥 CORREÇÃO PRINCIPAL (Render / produção)
+const ROOT_DIR = process.cwd();
 const FRONTEND_DIR = path.join(ROOT_DIR, 'frontend');
 const AUDIO_DIR = path.join(FRONTEND_DIR, 'audio');
 
@@ -74,6 +74,18 @@ let state = {
   lastUpdate: Date.now()
 };
 
+// ================= HISTORY =================
+function addToHistory(track) {
+  state.history.unshift({
+    ...track,
+    playedAt: Date.now()
+  });
+
+  if (state.history.length > 30) {
+    state.history.pop();
+  }
+}
+
 // ================= WEBSOCKET =================
 const clients = new Set();
 
@@ -113,6 +125,8 @@ wss.on('connection', (ws) => {
 
         state.lastUpdate = Date.now();
 
+        addToHistory(state.currentTrack);
+
         broadcast({ type: 'metadata', data: state.currentTrack });
       }
 
@@ -141,31 +155,39 @@ app.get('/api/history', (req, res) => {
   res.json(state.history.slice(0, 30));
 });
 
-// STREAM CORRIGIDO
-app.get('/api/stream', (req, res) => {
-  const track = state.currentTrack;
+// ================= STREAM REAL (CORRIGIDO) =================
+app.get('/stream', (req, res) => {
+  const filePath = path.join(AUDIO_DIR, state.currentTrack.file);
 
-  const filePath = path.join(AUDIO_DIR, track.file);
-
-  // valida se existe arquivo
   if (!fs.existsSync(filePath)) {
+    log('error', `Áudio não encontrado: ${filePath}`);
+
     return res.status(404).json({
       error: 'Arquivo de áudio não encontrado',
-      file: track.file
+      file: state.currentTrack.file,
+      path: filePath
     });
   }
 
-  const fileUrl =
-    `${req.protocol}://${req.get('host')}/audio/${encodeURIComponent(track.file)}`;
+  res.setHeader('Content-Type', 'audio/mpeg');
+  res.setHeader('Accept-Ranges', 'bytes');
+
+  const stream = fs.createReadStream(filePath);
+  stream.pipe(res);
+});
+
+// ================= STREAM INFO =================
+app.get('/api/stream', (req, res) => {
+  const fileUrl = `${req.protocol}://${req.get('host')}/stream`;
 
   res.json({
     stream: fileUrl,
-    title: track.title,
-    artist: track.artist
+    title: state.currentTrack.title,
+    artist: state.currentTrack.artist
   });
 });
 
-// HEALTH CHECK
+// ================= HEALTH CHECK =================
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
@@ -183,7 +205,16 @@ setInterval(() => {
   broadcast({ type: 'state', data: state });
 }, 10000);
 
-// ================= START SERVER =================
+// ================= PING WS (ANTI DROP RENDER) =================
+setInterval(() => {
+  clients.forEach(ws => {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.ping();
+    }
+  });
+}, 25000);
+
+// ================= START =================
 server.listen(PORT, '0.0.0.0', () => {
   log('info', `Servidor rodando na porta ${PORT}`);
 });
