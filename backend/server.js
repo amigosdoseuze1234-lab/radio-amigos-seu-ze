@@ -14,7 +14,9 @@ const wss = new WebSocket.Server({ server });
 const PORT = process.env.PORT || 10000;
 const NODE_ENV = process.env.NODE_ENV || 'development';
 
-const FRONTEND_DIR = path.resolve(__dirname, '../frontend');
+// Ajuste seguro para Render / produção
+const ROOT_DIR = path.resolve(__dirname, '..');
+const FRONTEND_DIR = path.join(ROOT_DIR, 'frontend');
 const AUDIO_DIR = path.join(FRONTEND_DIR, 'audio');
 
 // ================= MIDDLEWARE =================
@@ -29,6 +31,7 @@ app.use(express.json());
 
 // ================= LOG SYSTEM =================
 const LOG_DIR = path.join(__dirname, '../logs');
+
 if (!fs.existsSync(LOG_DIR)) {
   fs.mkdirSync(LOG_DIR, { recursive: true });
 }
@@ -76,6 +79,7 @@ const clients = new Set();
 
 function broadcast(data) {
   const msg = JSON.stringify(data);
+
   clients.forEach(ws => {
     if (ws.readyState === WebSocket.OPEN) {
       ws.send(msg);
@@ -83,7 +87,7 @@ function broadcast(data) {
   });
 }
 
-wss.on('connection', (ws, req) => {
+wss.on('connection', (ws) => {
   clients.add(ws);
   state.listeners = clients.size;
 
@@ -102,8 +106,9 @@ wss.on('connection', (ws, req) => {
 
       if (data.type === 'update_metadata') {
         state.currentTrack = {
-          title: data.title,
-          artist: data.artist || 'Ponto de Umbanda'
+          title: data.title || 'Desconhecido',
+          artist: data.artist || 'Ponto de Umbanda',
+          file: data.file || state.currentTrack.file
         };
 
         state.lastUpdate = Date.now();
@@ -136,9 +141,19 @@ app.get('/api/history', (req, res) => {
   res.json(state.history.slice(0, 30));
 });
 
-// STREAM ATUAL CORRIGIDO
+// STREAM CORRIGIDO
 app.get('/api/stream', (req, res) => {
   const track = state.currentTrack;
+
+  const filePath = path.join(AUDIO_DIR, track.file);
+
+  // valida se existe arquivo
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).json({
+      error: 'Arquivo de áudio não encontrado',
+      file: track.file
+    });
+  }
 
   const fileUrl =
     `${req.protocol}://${req.get('host')}/audio/${encodeURIComponent(track.file)}`;
