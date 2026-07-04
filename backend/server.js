@@ -17,8 +17,7 @@ const NODE_ENV = process.env.NODE_ENV || 'development';
 // 🔥 CORREÇÃO PRINCIPAL (Render / produção)
 const ROOT_DIR = process.cwd();
 const FRONTEND_DIR = path.join(ROOT_DIR, 'frontend');
-const AUDIO_DIR = path.join(FRONTEND_DIR, 'audio');
-
+const AUDIO_DIR = path.join(ROOT_DIR, 'audio');
 // ================= MIDDLEWARE =================
 app.use(cors({
   origin: NODE_ENV === 'production'
@@ -44,29 +43,40 @@ function log(level, message) {
 
 // ================= STATIC FILES =================
 app.use(express.static(FRONTEND_DIR));
-app.use('/audio', express.static(AUDIO_DIR));
+if (fs.existsSync(AUDIO_DIR)) {
+  app.use('/audio', express.static(AUDIO_DIR));
+} else {
+  console.error(`Pasta de áudio não encontrada: ${AUDIO_DIR}`);
+}
 
 // ================= PLAYLIST =================
-const PLAYLIST = [
-  { file: "7 Espadas Ogum.mp3", title: "7 Espadas Ogum", artist: "Ponto de Umbanda" },
-  { file: "Altar E Tronqueira.mp3", title: "Altar E Tronqueira", artist: "Ponto de Umbanda" },
-  { file: "a vida e assim mesmo como ela e.mp3", title: "A Vida É Assim Mesmo", artist: "Ponto de Umbanda" },
-  { file: "Batismo.mp3", title: "Batismo", artist: "Ponto de Umbanda" },
-  { file: "Benzimento da Lua.mp3", title: "Benzimento da Lua", artist: "Ponto de Umbanda" },
-  { file: "Caboclo Pedra Preta.mp3", title: "Caboclo Pedra Preta", artist: "Ponto de Umbanda" },
-  { file: "ciganos.mp3", title: "Ciganos", artist: "Ponto de Umbanda" },
-  { file: "Exu é lei.mp3", title: "Exu É Lei", artist: "Ponto de Umbanda" },
-  { file: "jangadeiro.mp3", title: "Jangadeiro", artist: "Ponto de Umbanda" },
-  { file: "João Batista.mp3", title: "João Batista", artist: "Ponto de Umbanda" },
-  { file: "Jurema.mp3", title: "Jurema", artist: "Ponto de Umbanda" },
-  { file: "Luz de Oxalá.mp3", title: "Luz de Oxalá", artist: "Ponto de Umbanda" }
-];
+// ================= PLAYLIST AUTOMÁTICA =================
+let PLAYLIST = [];
+
+if (fs.existsSync(AUDIO_DIR)) {
+  PLAYLIST = fs.readdirSync(AUDIO_DIR)
+    .filter(file => file.toLowerCase().endsWith('.mp3'))
+    .sort((a, b) => a.localeCompare(b, 'pt-BR'))
+    .map(file => ({
+      file,
+      title: path.parse(file).name,
+      artist: 'Ponto de Umbanda'
+    }));
+
+  console.log(`✓ ${PLAYLIST.length} músicas carregadas.`);
+} else {
+  console.error(`Pasta de áudio não encontrada: ${AUDIO_DIR}`);
+}
 
 // ================= STATE =================
 let state = {
   listeners: 0,
   peakListeners: 0,
-  currentTrack: PLAYLIST[0],
+  currentTrack: PLAYLIST[0] || {
+    file: '',
+    title: 'Nenhuma música',
+    artist: 'Ponto de Umbanda'
+  },
   playlist: PLAYLIST,
   history: [],
   uptime: 0,
@@ -157,15 +167,19 @@ app.get('/api/history', (req, res) => {
 
 // ================= STREAM REAL (CORRIGIDO) =================
 app.get('/stream', (req, res) => {
+
+  if (!state.currentTrack.file) {
+    return res.status(404).json({
+      error: 'Nenhuma música disponível'
+    });
+  }
+
   const filePath = path.join(AUDIO_DIR, state.currentTrack.file);
 
   if (!fs.existsSync(filePath)) {
-    log('error', `Áudio não encontrado: ${filePath}`);
-
     return res.status(404).json({
-      error: 'Arquivo de áudio não encontrado',
-      file: state.currentTrack.file,
-      path: filePath
+      error: 'Arquivo não encontrado',
+      file: state.currentTrack.file
     });
   }
 
@@ -173,6 +187,14 @@ app.get('/stream', (req, res) => {
   res.setHeader('Accept-Ranges', 'bytes');
 
   const stream = fs.createReadStream(filePath);
+
+  stream.on('error', (err) => {
+    console.error(err);
+    if (!res.headersSent) {
+      res.status(500).end('Erro ao abrir o áudio');
+    }
+  });
+
   stream.pipe(res);
 });
 
@@ -215,6 +237,11 @@ setInterval(() => {
 }, 25000);
 
 // ================= START =================
+console.log('ROOT_DIR:', ROOT_DIR);
+console.log('FRONTEND_DIR:', FRONTEND_DIR);
+console.log('AUDIO_DIR:', AUDIO_DIR);
+console.log('Quantidade de músicas:', PLAYLIST.length);
+
 server.listen(PORT, '0.0.0.0', () => {
   log('info', `Servidor rodando na porta ${PORT}`);
 });
