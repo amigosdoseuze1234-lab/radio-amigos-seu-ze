@@ -9,8 +9,9 @@
     "broadcaster": "node backend/broadcaster.js"
   },
   "dependencies": {
+    "cors": "^2.8.5",
     "express": "^4.18.2",
-    "cors": "^2.8.5"
+    "ws": "^8.21.0"
   },
   "engines": {
     "node": ">=18.0.0"
