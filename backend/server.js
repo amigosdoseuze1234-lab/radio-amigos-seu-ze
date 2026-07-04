@@ -15,7 +15,7 @@ const PORT = process.env.PORT || 10000;
 const NODE_ENV = process.env.NODE_ENV || 'development';
 
 // 🔥 CORREÇÃO PRINCIPAL (Render / produção)
-const ROOT_DIR = process.cwd();
+const ROOT_DIR = path.resolve(__dirname, '..');
 const FRONTEND_DIR = path.join(ROOT_DIR, 'frontend');
 const AUDIO_DIR = path.join(ROOT_DIR, 'audio');
 // ================= MIDDLEWARE =================
