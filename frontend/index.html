@@ -2,7 +2,12 @@
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#1a1a2e">
+    <meta name="format-detection" content="telephone=no">
     <title>Rádio Amigos do Seu Zé</title>
     <link rel="manifest" href="manifest.json">
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎵</text></svg>">
@@ -11,22 +16,30 @@
             margin: 0;
             padding: 0;
             box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+            -webkit-touch-callout: none;
         }
 
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Tahoma, Geneva, Verdana, sans-serif;
             background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
             min-height: 100vh;
+            min-height: 100dvh;
             color: #fff;
             display: flex;
             flex-direction: column;
             align-items: center;
+            overscroll-behavior-y: none;
+            -webkit-overflow-scrolling: touch;
+            padding-bottom: env(safe-area-inset-bottom);
         }
 
         /* Header */
         .header {
             text-align: center;
             padding: 30px 20px 20px;
+            width: 100%;
+            padding-top: max(30px, env(safe-area-inset-top));
         }
 
         .logo {
@@ -46,6 +59,7 @@
             justify-content: center;
             font-size: 28px;
             box-shadow: 0 4px 15px rgba(233, 69, 96, 0.4);
+            flex-shrink: 0;
         }
 
         .logo h1 {
@@ -91,6 +105,13 @@
             animation: pulse 1.5s infinite;
         }
 
+        .status-badge.buffering {
+            background: rgba(0, 150, 255, 0.15);
+            color: #0096ff;
+            border: 1px solid rgba(0, 150, 255, 0.3);
+            animation: pulse 1s infinite;
+        }
+
         @keyframes pulse {
             0%, 100% { opacity: 1; }
             50% { opacity: 0.5; }
@@ -101,6 +122,7 @@
             height: 8px;
             border-radius: 50%;
             background: currentColor;
+            flex-shrink: 0;
         }
 
         /* Player Card */
@@ -109,6 +131,7 @@
             max-width: 400px;
             background: rgba(255, 255, 255, 0.05);
             backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
             border: 1px solid rgba(255, 255, 255, 0.1);
             border-radius: 24px;
             padding: 30px;
@@ -126,12 +149,14 @@
             overflow: hidden;
             position: relative;
             box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+            background: linear-gradient(135deg, #1a1a2e, #16213e);
         }
 
         .album-art img {
             width: 100%;
             height: 100%;
             object-fit: cover;
+            display: block;
         }
 
         .album-art-overlay {
@@ -163,15 +188,7 @@
             border-radius: 2px;
             transition: height 0.1s ease;
             height: 5px;
-        }
-
-        .bar.active {
-            animation: dance 0.5s ease infinite alternate;
-        }
-
-        @keyframes dance {
-            0% { height: 5px; }
-            100% { height: 25px; }
+            will-change: height;
         }
 
         /* Track Info */
@@ -193,6 +210,8 @@
             margin-bottom: 5px;
             color: #fff;
             min-height: 28px;
+            word-break: break-word;
+            line-height: 1.3;
         }
 
         .track-artist {
@@ -212,6 +231,7 @@
             border-radius: 2px;
             overflow: hidden;
             cursor: pointer;
+            touch-action: manipulation;
         }
 
         .progress-fill {
@@ -251,12 +271,36 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            transition: all 0.3s ease;
+            transition: all 0.15s ease;
+            -webkit-appearance: none;
+            appearance: none;
+            touch-action: manipulation;
+            user-select: none;
+            -webkit-user-select: none;
+            position: relative;
+            overflow: hidden;
         }
 
-        .control-btn:hover {
+        .control-btn::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 0;
+            height: 0;
             background: rgba(255,255,255,0.2);
-            transform: scale(1.1);
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            transition: width 0.3s, height 0.3s;
+        }
+
+        .control-btn:active::after {
+            width: 100%;
+            height: 100%;
+        }
+
+        .control-btn:active {
+            transform: scale(0.92);
         }
 
         .control-btn.play-btn {
@@ -267,9 +311,9 @@
             box-shadow: 0 5px 20px rgba(233, 69, 96, 0.4);
         }
 
-        .control-btn.play-btn:hover {
-            transform: scale(1.15);
-            box-shadow: 0 8px 30px rgba(233, 69, 96, 0.6);
+        .control-btn.play-btn:active {
+            transform: scale(0.92);
+            box-shadow: 0 3px 12px rgba(233, 69, 96, 0.3);
         }
 
         .control-btn:disabled {
@@ -305,11 +349,21 @@
             cursor: pointer;
         }
 
+        .volume-slider::-moz-range-thumb {
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background: #e94560;
+            cursor: pointer;
+            border: none;
+        }
+
         /* Playlist */
         .playlist-section {
             width: 90%;
             max-width: 400px;
             margin: 0 auto 40px;
+            margin-bottom: max(40px, env(safe-area-inset-bottom));
         }
 
         .playlist-header {
@@ -342,6 +396,7 @@
             overflow: hidden;
             max-height: 300px;
             overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
         }
 
         .playlist::-webkit-scrollbar {
@@ -363,12 +418,14 @@
             gap: 12px;
             padding: 12px 15px;
             cursor: pointer;
-            transition: all 0.2s ease;
+            transition: background 0.2s ease;
             border-bottom: 1px solid rgba(255,255,255,0.03);
+            touch-action: manipulation;
+            -webkit-tap-highlight-color: rgba(233, 69, 96, 0.1);
         }
 
-        .playlist-item:hover {
-            background: rgba(255,255,255,0.05);
+        .playlist-item:active {
+            background: rgba(255,255,255,0.08);
         }
 
         .playlist-item.active {
@@ -381,6 +438,7 @@
             color: rgba(255,255,255,0.3);
             width: 25px;
             text-align: center;
+            flex-shrink: 0;
         }
 
         .playlist-item-info {
@@ -399,6 +457,7 @@
         .playlist-item-duration {
             font-size: 12px;
             color: rgba(255,255,255,0.4);
+            flex-shrink: 0;
         }
 
         /* Error Message */
@@ -412,6 +471,8 @@
             text-align: center;
             margin-bottom: 20px;
             display: none;
+            max-width: 90%;
+            word-break: break-word;
         }
 
         .error-message.show {
@@ -433,6 +494,93 @@
             to { transform: rotate(360deg); }
         }
 
+        /* Toast notification */
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%) translateY(100px);
+            background: rgba(0,0,0,0.9);
+            color: #fff;
+            padding: 12px 24px;
+            border-radius: 12px;
+            font-size: 13px;
+            z-index: 1000;
+            opacity: 0;
+            transition: all 0.3s ease;
+            pointer-events: none;
+            max-width: 90%;
+            text-align: center;
+            word-break: break-word;
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+        }
+
+        .toast.show {
+            transform: translateX(-50%) translateY(0);
+            opacity: 1;
+        }
+
+        /* First interaction overlay for mobile */
+        .interaction-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.7);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 2000;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+        }
+
+        .interaction-overlay.show {
+            opacity: 1;
+            pointer-events: all;
+        }
+
+        .interaction-overlay-content {
+            background: linear-gradient(135deg, #1a1a2e, #16213e);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 20px;
+            padding: 30px;
+            text-align: center;
+            max-width: 300px;
+            margin: 20px;
+        }
+
+        .interaction-overlay-content .icon {
+            font-size: 48px;
+            margin-bottom: 15px;
+        }
+
+        .interaction-overlay-content h3 {
+            font-size: 18px;
+            margin-bottom: 10px;
+        }
+
+        .interaction-overlay-content p {
+            font-size: 13px;
+            color: rgba(255,255,255,0.6);
+            margin-bottom: 20px;
+        }
+
+        .interaction-overlay-content button {
+            background: linear-gradient(135deg, #e94560, #ff6b6b);
+            color: #fff;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 25px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            width: 100%;
+        }
+
         /* Responsive */
         @media (max-width: 480px) {
             .logo h1 {
@@ -441,11 +589,42 @@
 
             .player-card {
                 padding: 20px;
+                width: 95%;
+                border-radius: 20px;
             }
 
             .album-art {
                 width: 150px;
                 height: 150px;
+            }
+
+            .controls {
+                gap: 15px;
+            }
+
+            .control-btn {
+                width: 45px;
+                height: 45px;
+                font-size: 18px;
+            }
+
+            .control-btn.play-btn {
+                width: 60px;
+                height: 60px;
+                font-size: 24px;
+            }
+
+            .track-title {
+                font-size: 18px;
+            }
+        }
+
+        /* Reduce motion preference */
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                animation-duration: 0.01ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: 0.01ms !important;
             }
         }
     </style>
@@ -474,7 +653,9 @@
             <img src="https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=400&h=400&fit=crop" 
                  alt="Album Art" 
                  id="albumArt"
-                 onerror="this.src='https://via.placeholder.com/400x400/1a1a2e/e94560?text=🎵'">
+                 onerror="this.src='https://via.placeholder.com/400x400/1a1a2e/e94560?text=🎵'"
+                 loading="lazy"
+                 decoding="async">
             <div class="album-art-overlay">Ponto de Umbanda</div>
         </div>
 
@@ -512,18 +693,18 @@
 
         <!-- Controls -->
         <div class="controls">
-            <button class="control-btn" id="prevBtn" title="Anterior">⏮</button>
-            <button class="control-btn" id="stopBtn" title="Parar">⏹</button>
-            <button class="control-btn play-btn" id="playBtn" title="Play/Pause">▶</button>
-            <button class="control-btn" id="muteBtn" title="Mudo">🔊</button>
-            <button class="control-btn" id="nextBtn" title="Próxima">⏭</button>
+            <button class="control-btn" id="prevBtn" title="Anterior" type="button" aria-label="Música anterior">⏮</button>
+            <button class="control-btn" id="stopBtn" title="Parar" type="button" aria-label="Parar">⏹</button>
+            <button class="control-btn play-btn" id="playBtn" title="Play/Pause" type="button" aria-label="Play ou Pausa">▶</button>
+            <button class="control-btn" id="muteBtn" title="Mudo" type="button" aria-label="Ativar ou desativar som">🔊</button>
+            <button class="control-btn" id="nextBtn" title="Próxima" type="button" aria-label="Próxima música">⏭</button>
         </div>
 
         <!-- Volume -->
         <div class="volume-container">
-            <span>🔈</span>
-            <input type="range" class="volume-slider" id="volumeSlider" min="0" max="100" value="80">
-            <span>🔊</span>
+            <span aria-hidden="true">🔈</span>
+            <input type="range" class="volume-slider" id="volumeSlider" min="0" max="100" value="80" aria-label="Volume">
+            <span aria-hidden="true">🔊</span>
         </div>
     </div>
 
@@ -541,486 +722,910 @@
         </div>
     </div>
 
+    <!-- Toast -->
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+    <!-- Mobile Interaction Overlay -->
+    <div class="interaction-overlay" id="interactionOverlay">
+        <div class="interaction-overlay-content">
+            <div class="icon">🎵</div>
+            <h3>Toque para começar</h3>
+            <p>Seu navegador requer uma interação inicial para tocar áudio</p>
+            <button id="startAudioBtn">Começar</button>
+        </div>
+    </div>
+
     <!-- Audio Element -->
-    <audio id="audioPlayer" preload="metadata"></audio>
+    <audio id="audioPlayer" 
+           preload="metadata" 
+           crossorigin="anonymous" 
+           playsinline 
+           webkit-playsinline
+           x-webkit-airplay="allow"></audio>
 
     <script>
         /**
-         * Rádio Amigos do Seu Zé - Player Corrigido
-         * Compatível com backend Express + API /api/playlist
+         * Rádio Amigos do Seu Zé - Player Ultra-Compatível
+         * Android, iPhone, iPad, Desktop - Todos os navegadores
+         * 
+         * Políticas de autoplay:
+         * - iOS Safari: requer interação do usuário antes de play()
+         * - Android Chrome: requer interação ou MEI alto
+         * - Desktop: geralmente permite autoplay após primeira interação
          */
 
-        const RadioPlayer = {
-            audio: document.getElementById('audioPlayer'),
-            playBtn: document.getElementById('playBtn'),
-            stopBtn: document.getElementById('stopBtn'),
-            prevBtn: document.getElementById('prevBtn'),
-            nextBtn: document.getElementById('nextBtn'),
-            muteBtn: document.getElementById('muteBtn'),
-            volumeSlider: document.getElementById('volumeSlider'),
-            trackTitle: document.getElementById('trackTitle'),
-            trackArtist: document.getElementById('trackArtist'),
-            progressBar: document.getElementById('progressBar'),
-            progressFill: document.getElementById('progressFill'),
-            currentTime: document.getElementById('currentTime'),
-            statusBadge: document.getElementById('statusBadge'),
-            statusText: document.getElementById('statusText'),
-            playlist: document.getElementById('playlist'),
-            playlistCount: document.getElementById('playlistCount'),
-            errorMessage: document.getElementById('errorMessage'),
-            visualizer: document.getElementById('visualizer'),
+        (function() {
+            'use strict';
 
-            tracks: [],
-            currentTrackIndex: 0,
-            isPlaying: false,
-            isMuted: false,
-            previousVolume: 80,
-            visualizerInterval: null,
-            ws: null,
+            const RadioPlayer = {
+                // DOM Elements
+                audio: null,
+                playBtn: null,
+                stopBtn: null,
+                prevBtn: null,
+                nextBtn: null,
+                muteBtn: null,
+                volumeSlider: null,
+                trackTitle: null,
+                trackArtist: null,
+                progressBar: null,
+                progressFill: null,
+                currentTime: null,
+                statusBadge: null,
+                statusText: null,
+                playlist: null,
+                playlistCount: null,
+                errorMessage: null,
+                visualizer: null,
+                toast: null,
+                interactionOverlay: null,
+                startAudioBtn: null,
 
-            // URL base da API (mesma origem)
-            getBaseUrl() {
-                return window.location.origin;
-            },
+                // State
+                tracks: [],
+                currentTrackIndex: 0,
+                isPlaying: false,
+                isMuted: false,
+                previousVolume: 80,
+                visualizerInterval: null,
+                ws: null,
+                wsReconnectTimer: null,
+                apiRetryCount: 0,
+                maxApiRetries: 3,
+                isMobile: false,
+                isIOS: false,
+                isAndroid: false,
+                isSafari: false,
+                audioContext: null,
+                userInteracted: false,
+                autoplayBlocked: false,
 
-            init() {
-                this.bindEvents();
-                this.setupAudioEvents();
-                this.loadPlaylist();
-                this.connectWebSocket();
-            },
+                init() {
+                    this.detectDevice();
+                    this.cacheElements();
+                    if (!this.audio) {
+                        console.error('Audio element not found');
+                        return;
+                    }
+                    this.bindEvents();
+                    this.setupAudioEvents();
+                    this.loadPlaylist();
+                    this.connectWebSocket();
+                    this.setVolume(80);
 
-            // Conectar WebSocket para updates em tempo real
-            connectWebSocket() {
-                const wsUrl = window.location.origin.replace(/^http/, 'ws');
-                try {
-                    this.ws = new WebSocket(wsUrl);
+                    // Detectar se autoplay é permitido
+                    this.checkAutoplayPolicy();
+                },
 
-                    this.ws.onopen = () => {
-                        console.log('WebSocket conectado');
-                    };
+                detectDevice() {
+                    const ua = navigator.userAgent.toLowerCase();
+                    this.isIOS = /iphone|ipad|ipod/.test(ua);
+                    this.isAndroid = /android/.test(ua);
+                    this.isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+                    this.isMobile = this.isIOS || this.isAndroid || /mobile/.test(ua);
+                    console.log('Device:', this.isIOS ? 'iOS' : this.isAndroid ? 'Android' : 'Desktop', 
+                                'Safari:', this.isSafari);
+                },
 
-                    this.ws.onmessage = (event) => {
-                        try {
-                            const data = JSON.parse(event.data);
-                            if (data.type === 'metadata' && data.data) {
-                                this.trackTitle.textContent = data.data.title || 'Desconhecido';
-                                this.trackArtist.textContent = data.data.artist || 'Ponto de Umbanda';
-                            }
-                            if (data.type === 'state' && data.data) {
-                                this.setStatus('online', `AO VIVO · ${data.data.listeners || 0} ouvintes`);
-                            }
-                        } catch (e) {
-                            console.log('WS message error:', e);
+                cacheElements() {
+                    this.audio = document.getElementById('audioPlayer');
+                    this.playBtn = document.getElementById('playBtn');
+                    this.stopBtn = document.getElementById('stopBtn');
+                    this.prevBtn = document.getElementById('prevBtn');
+                    this.nextBtn = document.getElementById('nextBtn');
+                    this.muteBtn = document.getElementById('muteBtn');
+                    this.volumeSlider = document.getElementById('volumeSlider');
+                    this.trackTitle = document.getElementById('trackTitle');
+                    this.trackArtist = document.getElementById('trackArtist');
+                    this.progressBar = document.getElementById('progressBar');
+                    this.progressFill = document.getElementById('progressFill');
+                    this.currentTime = document.getElementById('currentTime');
+                    this.statusBadge = document.getElementById('statusBadge');
+                    this.statusText = document.getElementById('statusText');
+                    this.playlist = document.getElementById('playlist');
+                    this.playlistCount = document.getElementById('playlistCount');
+                    this.errorMessage = document.getElementById('errorMessage');
+                    this.visualizer = document.getElementById('visualizer');
+                    this.toast = document.getElementById('toast');
+                    this.interactionOverlay = document.getElementById('interactionOverlay');
+                    this.startAudioBtn = document.getElementById('startAudioBtn');
+                },
+
+                getBaseUrl() {
+                    return window.location.origin;
+                },
+
+                // ===== AUTPLAY DETECTION =====
+                async checkAutoplayPolicy() {
+                    // Método moderno: Navigator.getAutoplayPolicy()
+                    if (navigator.getAutoplayPolicy) {
+                        const policy = navigator.getAutoplayPolicy('mediaelement');
+                        console.log('Autoplay policy:', policy);
+                        if (policy === 'disallowed') {
+                            this.autoplayBlocked = true;
                         }
-                    };
+                        return;
+                    }
 
-                    this.ws.onerror = (err) => {
-                        console.log('WebSocket erro:', err);
-                    };
-
-                    this.ws.onclose = () => {
-                        // Reconectar em 5 segundos
-                        setTimeout(() => this.connectWebSocket(), 5000);
-                    };
-                } catch (e) {
-                    console.log('WebSocket não disponível');
-                }
-            },
-
-            bindEvents() {
-                this.playBtn.addEventListener('click', () => this.togglePlay());
-                this.stopBtn.addEventListener('click', () => this.stop());
-                this.prevBtn.addEventListener('click', () => this.previousTrack());
-                this.nextBtn.addEventListener('click', () => this.nextTrack());
-                this.muteBtn.addEventListener('click', () => this.toggleMute());
-                this.volumeSlider.addEventListener('input', (e) => this.setVolume(e.target.value));
-
-                this.progressBar.addEventListener('click', (e) => {
-                    const rect = this.progressBar.getBoundingClientRect();
-                    const percent = (e.clientX - rect.left) / rect.width;
-                    this.seek(percent);
-                });
-            },
-
-            setupAudioEvents() {
-                // Quando o áudio começa a tocar
-                this.audio.addEventListener('play', () => {
-                    this.isPlaying = true;
-                    this.updatePlayButton();
-                    this.setStatus('online', 'Tocando');
-                    this.startVisualizer();
-                });
-
-                // Quando o áudio pausa
-                this.audio.addEventListener('pause', () => {
-                    this.isPlaying = false;
-                    this.updatePlayButton();
-                    this.stopVisualizer();
-                });
-
-                // Quando a música termina, vai para a próxima
-                this.audio.addEventListener('ended', () => {
-                    this.nextTrack();
-                });
-
-                // Erro no carregamento do áudio
-                this.audio.addEventListener('error', (e) => {
-                    console.error('Erro no áudio:', e);
-                    const error = this.audio.error;
-                    let msg = 'Erro ao carregar áudio.';
-                    if (error) {
-                        switch(error.code) {
-                            case 1: msg = 'Reprodução abortada.'; break;
-                            case 2: msg = 'Erro de rede. Verifique sua conexão.'; break;
-                            case 3: msg = 'Erro de decodificação. Formato não suportado.'; break;
-                            case 4: msg = 'Áudio não encontrado no servidor.'; break;
+                    // Fallback: tentar tocar áudio silencioso
+                    if (this.isMobile || this.isSafari) {
+                        const testAudio = new Audio();
+                        testAudio.volume = 0;
+                        try {
+                            await testAudio.play();
+                            testAudio.pause();
+                            console.log('Autoplay allowed');
+                        } catch (err) {
+                            console.log('Autoplay blocked:', err.name);
+                            this.autoplayBlocked = true;
                         }
                     }
+                },
+
+                // ===== EVENT BINDING =====
+                bindEvents() {
+                    // Botão de play principal
+                    this.bindTouch(this.playBtn, (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        this.handleUserInteraction();
+                        this.togglePlay();
+                    });
+
+                    this.bindTouch(this.stopBtn, (e) => {
+                        e.preventDefault();
+                        this.handleUserInteraction();
+                        this.stop();
+                    });
+
+                    this.bindTouch(this.prevBtn, (e) => {
+                        e.preventDefault();
+                        this.handleUserInteraction();
+                        this.previousTrack();
+                    });
+
+                    this.bindTouch(this.nextBtn, (e) => {
+                        e.preventDefault();
+                        this.handleUserInteraction();
+                        this.nextTrack();
+                    });
+
+                    this.bindTouch(this.muteBtn, (e) => {
+                        e.preventDefault();
+                        this.handleUserInteraction();
+                        this.toggleMute();
+                    });
+
+                    this.volumeSlider.addEventListener('input', (e) => {
+                        this.setVolume(e.target.value);
+                    });
+
+                    // Progress bar
+                    this.bindTouch(this.progressBar, (e) => {
+                        e.preventDefault();
+                        const rect = this.progressBar.getBoundingClientRect();
+                        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+                        const percent = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+                        this.seek(percent);
+                    });
+
+                    // Overlay de interação para mobile
+                    if (this.startAudioBtn) {
+                        this.bindTouch(this.startAudioBtn, (e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            this.handleUserInteraction();
+                            this.hideInteractionOverlay();
+                            this.togglePlay();
+                        });
+                    }
+
+                    // Detectar primeira interação em qualquer lugar da página
+                    const firstInteraction = () => {
+                        this.handleUserInteraction();
+                        document.removeEventListener('touchstart', firstInteraction);
+                        document.removeEventListener('click', firstInteraction);
+                    };
+                    document.addEventListener('touchstart', firstInteraction, { once: true, passive: true });
+                    document.addEventListener('click', firstInteraction, { once: true });
+
+                    // Visibility API
+                    document.addEventListener('visibilitychange', () => {
+                        if (document.hidden) {
+                            this.pauseVisualizer();
+                        } else if (this.isPlaying) {
+                            this.startVisualizer();
+                        }
+                    });
+
+                    // Online/Offline
+                    window.addEventListener('online', () => {
+                        this.showToast('Conexão restaurada');
+                        if (this.tracks.length === 0) {
+                            this.loadPlaylist();
+                        }
+                    });
+
+                    window.addEventListener('offline', () => {
+                        this.showToast('Sem conexão com a internet');
+                        this.setStatus('offline', 'Sem conexão');
+                    });
+                },
+
+                handleUserInteraction() {
+                    if (!this.userInteracted) {
+                        this.userInteracted = true;
+                        console.log('User interaction detected');
+
+                        // iOS: inicializar AudioContext após interação
+                        if (this.isIOS || this.isSafari) {
+                            this.initAudioContext();
+                        }
+                    }
+                },
+
+                showInteractionOverlay() {
+                    if (this.interactionOverlay && this.autoplayBlocked && !this.userInteracted) {
+                        this.interactionOverlay.classList.add('show');
+                    }
+                },
+
+                hideInteractionOverlay() {
+                    if (this.interactionOverlay) {
+                        this.interactionOverlay.classList.remove('show');
+                    }
+                },
+
+                bindTouch(element, handler) {
+                    if (!element) return;
+
+                    // Usar pointerdown para unificar mouse e touch
+                    element.addEventListener('pointerdown', (e) => {
+                        handler(e);
+                    });
+
+                    // Fallback touchstart com preventDefault para evitar delay de 300ms
+                    element.addEventListener('touchstart', (e) => {
+                        // Não previne default aqui para permitir scroll
+                    }, { passive: true });
+
+                    element.addEventListener('touchend', (e) => {
+                        e.preventDefault();
+                        handler(e);
+                    }, { passive: false });
+
+                    // Fallback click
+                    element.addEventListener('click', (e) => {
+                        handler(e);
+                    });
+                },
+
+                // ===== AUDIO EVENTS =====
+                setupAudioEvents() {
+                    const audio = this.audio;
+
+                    audio.addEventListener('play', () => {
+                        this.isPlaying = true;
+                        this.updatePlayButton();
+                        this.setStatus('online', 'Tocando');
+                        this.startVisualizer();
+                        this.hideInteractionOverlay();
+                    });
+
+                    audio.addEventListener('pause', () => {
+                        this.isPlaying = false;
+                        this.updatePlayButton();
+                        this.stopVisualizer();
+                    });
+
+                    audio.addEventListener('ended', () => {
+                        console.log('Track ended, playing next');
+                        this.nextTrack();
+                    });
+
+                    audio.addEventListener('error', (e) => {
+                        console.error('Audio error:', e, 'code:', audio.error ? audio.error.code : 'unknown');
+                        this.handleAudioError();
+                    });
+
+                    audio.addEventListener('timeupdate', () => {
+                        this.updateProgress();
+                    });
+
+                    audio.addEventListener('waiting', () => {
+                        this.setStatus('buffering', 'Carregando...');
+                    });
+
+                    audio.addEventListener('canplay', () => {
+                        if (this.isPlaying) {
+                            this.setStatus('online', 'Tocando');
+                        } else {
+                            this.setStatus('online', 'Pronto');
+                        }
+                        this.hideError();
+                    });
+
+                    audio.addEventListener('canplaythrough', () => {
+                        this.setStatus('online', 'Tocando');
+                    });
+
+                    audio.addEventListener('loadedmetadata', () => {
+                        this.updateProgress();
+                    });
+
+                    audio.addEventListener('stalled', () => {
+                        console.warn('Audio stalled');
+                        this.setStatus('buffering', 'Reconectando...');
+                    });
+
+                    audio.addEventListener('suspend', () => {
+                        console.log('Audio suspended (buffering)');
+                    });
+                },
+
+                handleAudioError() {
+                    const error = this.audio.error;
+                    let msg = 'Erro ao carregar áudio.';
+                    let shouldRetry = false;
+
+                    if (error) {
+                        switch(error.code) {
+                            case 1: // MEDIA_ERR_ABORTED
+                                msg = 'Reprodução interrompida.';
+                                break;
+                            case 2: // MEDIA_ERR_NETWORK
+                                msg = 'Erro de rede. Verificando conexão...';
+                                shouldRetry = true;
+                                break;
+                            case 3: // MEDIA_ERR_DECODE
+                                msg = 'Erro de decodificação. Tentando próxima música...';
+                                shouldRetry = true;
+                                break;
+                            case 4: // MEDIA_ERR_SRC_NOT_SUPPORTED
+                                msg = 'Formato não suportado ou arquivo não encontrado.';
+                                break;
+                        }
+                    }
+
                     this.showError(msg);
                     this.setStatus('offline', 'Erro');
                     this.stopVisualizer();
-                });
 
-                // Atualiza progresso em tempo real
-                this.audio.addEventListener('timeupdate', () => {
-                    this.updateProgress();
-                });
-
-                // Carregando/buffering
-                this.audio.addEventListener('waiting', () => {
-                    this.setStatus('connecting', 'Carregando...');
-                });
-
-                // Pronto para tocar
-                this.audio.addEventListener('canplay', () => {
-                    if (this.isPlaying) {
-                        this.setStatus('online', 'Tocando');
-                    } else {
-                        this.setStatus('online', 'Pronto');
+                    if (shouldRetry && this.tracks.length > 0) {
+                        setTimeout(() => {
+                            console.log('Retrying next track...');
+                            this.nextTrack();
+                        }, 2000);
                     }
-                    this.hideError();
-                });
+                },
 
-                // Metadados carregados (duração disponível)
-                this.audio.addEventListener('loadedmetadata', () => {
-                    this.updateProgress();
-                });
-
-                // Carregando dados
-                this.audio.addEventListener('loadstart', () => {
-                    this.setStatus('connecting', 'Carregando...');
-                });
-
-                // Dados suficientes para começar
-                this.audio.addEventListener('canplaythrough', () => {
-                    this.setStatus('online', 'Tocando');
-                });
-
-                // Progresso do buffer
-                this.audio.addEventListener('progress', () => {
-                    if (this.audio.buffered.length > 0) {
-                        const buffered = this.audio.buffered.end(this.audio.buffered.length - 1);
-                        const duration = this.audio.duration;
-                        if (duration && isFinite(duration)) {
-                            const percent = (buffered / duration) * 100;
-                            // Poderia mostrar barra de buffer aqui
+                // ===== AUDIO CONTEXT (iOS) =====
+                initAudioContext() {
+                    try {
+                        const AudioContext = window.AudioContext || window.webkitAudioContext;
+                        if (AudioContext) {
+                            if (!this.audioContext) {
+                                this.audioContext = new AudioContext();
+                            }
+                            // iOS: resume contexto se suspenso
+                            if (this.audioContext.state === 'suspended') {
+                                this.audioContext.resume().then(() => {
+                                    console.log('AudioContext resumed');
+                                });
+                            }
                         }
+                    } catch (e) {
+                        console.log('AudioContext not available:', e);
                     }
-                });
-            },
+                },
 
-            async loadPlaylist() {
-                try {
-                    const baseUrl = this.getBaseUrl();
-                    const response = await fetch(`${baseUrl}/api/playlist`);
+                // ===== PLAYLIST =====
+                async loadPlaylist() {
+                    this.setStatus('connecting', 'Carregando músicas...');
 
-                    if (!response.ok) {
-                        throw new Error(`HTTP ${response.status}`);
+                    try {
+                        const baseUrl = this.getBaseUrl();
+                        const controller = new AbortController();
+                        const timeoutId = setTimeout(() => controller.abort(), 15000);
+
+                        const response = await fetch(`${baseUrl}/api/playlist`, {
+                            signal: controller.signal,
+                            headers: { 'Accept': 'application/json' }
+                        });
+
+                        clearTimeout(timeoutId);
+
+                        if (!response.ok) {
+                            throw new Error(`HTTP ${response.status}`);
+                        }
+
+                        const data = await response.json();
+                        this.apiRetryCount = 0;
+
+                        if (Array.isArray(data) && data.length > 0) {
+                            this.tracks = data.map(track => ({
+                                name: track.title || this.cleanFileName(track.file),
+                                file: track.file,
+                                artist: track.artist || 'Ponto de Umbanda'
+                            }));
+
+                            this.renderPlaylist();
+                            this.playlistCount.textContent = `${this.tracks.length} música${this.tracks.length !== 1 ? 's' : ''}`;
+                            this.hideError();
+                            this.loadTrack(0, false);
+                            this.setStatus('online', 'Pronto para tocar');
+                            console.log(`Playlist loaded: ${this.tracks.length} tracks`);
+                        } else {
+                            throw new Error('Playlist vazia');
+                        }
+
+                    } catch (err) {
+                        console.error('Load playlist error:', err);
+                        this.handlePlaylistError(err);
+                    }
+                },
+
+                handlePlaylistError(err) {
+                    this.apiRetryCount++;
+
+                    if (this.apiRetryCount <= this.maxApiRetries) {
+                        const delay = this.apiRetryCount * 2000;
+                        console.log(`Retrying playlist load in ${delay}ms (attempt ${this.apiRetryCount})`);
+                        this.setStatus('connecting', `Tentando novamente... (${this.apiRetryCount}/${this.maxApiRetries})`);
+                        setTimeout(() => this.loadPlaylist(), delay);
+                        return;
                     }
 
-                    const data = await response.json();
+                    this.showError('Não foi possível carregar a playlist. Verifique sua conexão.');
+                    this.setStatus('offline', 'Servidor indisponível');
 
-                    // A API retorna array direto: [{file, title, artist}, ...]
-                    if (Array.isArray(data) && data.length > 0) {
-                        this.tracks = data.map(track => ({
-                            name: track.title || track.file,
-                            file: track.file,
-                            artist: track.artist || 'Ponto de Umbanda'
-                        }));
-
-                        this.renderPlaylist();
-                        this.playlistCount.textContent = `${this.tracks.length} música${this.tracks.length !== 1 ? 's' : ''}`;
-                        this.hideError();
-
-                        // Carregar primeira música (sem dar play automático)
-                        this.loadTrack(0);
-                        this.setStatus('online', 'Pronto para tocar');
-                    } else if (data.success && Array.isArray(data.tracks) && data.tracks.length > 0) {
-                        // Fallback para formato alternativo
-                        this.tracks = data.tracks.map(track => ({
-                            name: track.title || track.file,
-                            file: track.file,
-                            artist: track.artist || 'Ponto de Umbanda'
-                        }));
-
-                        this.renderPlaylist();
-                        this.playlistCount.textContent = `${this.tracks.length} música${this.tracks.length !== 1 ? 's' : ''}`;
-                        this.hideError();
-                        this.loadTrack(0);
-                        this.setStatus('online', 'Pronto para tocar');
-                    } else {
-                        throw new Error('Nenhuma música encontrada');
-                    }
-                } catch (err) {
-                    console.error('Erro ao carregar playlist:', err);
-                    this.showError('Não foi possível carregar a playlist. Verifique se há músicas na pasta /audio.');
-                    this.setStatus('offline', 'Servidor Offline');
-
-                    // Mostrar estado vazio
                     this.playlist.innerHTML = `
                         <div style="text-align: center; padding: 30px; color: rgba(255,255,255,0.3);">
-                            <p>📂 Nenhuma música disponível</p>
-                            <p style="font-size: 12px; margin-top: 5px;">Adicione arquivos MP3 na pasta /audio</p>
+                            <p style="font-size: 24px; margin-bottom: 10px;">📂</p>
+                            <p>Nenhuma música disponível</p>
+                            <p style="font-size: 12px; margin-top: 8px; opacity: 0.7;">
+                                Toque aqui para tentar novamente
+                            </p>
                         </div>
                     `;
-                    this.playlistCount.textContent = '0 músicas';
-                }
-            },
-
-            renderPlaylist() {
-                this.playlist.innerHTML = '';
-
-                this.tracks.forEach((track, index) => {
-                    const item = document.createElement('div');
-                    item.className = `playlist-item ${index === this.currentTrackIndex ? 'active' : ''}`;
-                    item.innerHTML = `
-                        <div class="playlist-item-number">${index + 1}</div>
-                        <div class="playlist-item-info">
-                            <div class="playlist-item-title">${this.escapeHtml(track.name)}</div>
-                        </div>
-                        <div class="playlist-item-duration">▶</div>
-                    `;
-                    item.addEventListener('click', () => this.playTrack(index));
-                    this.playlist.appendChild(item);
-                });
-            },
-
-            loadTrack(index) {
-                if (this.tracks.length === 0) return;
-
-                this.currentTrackIndex = index;
-                const track = this.tracks[index];
-                const baseUrl = this.getBaseUrl();
-
-                // Atualizar UI
-                this.trackTitle.textContent = track.name;
-                this.trackArtist.textContent = track.artist || 'Rádio Amigos do Seu Zé';
-                this.updatePlaylistActive();
-
-                // CORREÇÃO PRINCIPAL: Montar URL correta do áudio
-                // O backend serve arquivos em /audio/nome-do-arquivo.mp3
-                const audioUrl = `${baseUrl}/audio/${encodeURIComponent(track.file)}`;
-
-                // Só atualiza src se for diferente (evita recarregar a mesma música)
-                if (this.audio.src !== audioUrl) {
-                    this.audio.src = audioUrl;
-                    this.audio.load();
-                }
-            },
-
-            playTrack(index) {
-                this.loadTrack(index);
-                // Pequeno delay para garantir que o src foi atualizado antes do play
-                setTimeout(() => {
-                    this.play();
-                }, 50);
-            },
-
-            togglePlay() {
-                if (this.isPlaying) {
-                    this.pause();
-                } else {
-                    this.play();
-                }
-            },
-
-            play() {
-                if (this.tracks.length === 0) {
-                    this.showError('Nenhuma música na playlist');
-                    return;
-                }
-
-                // Se não tiver src definido, carrega a música atual
-                if (!this.audio.src || this.audio.src === window.location.href) {
-                    this.loadTrack(this.currentTrackIndex);
-                }
-
-                const playPromise = this.audio.play();
-
-                if (playPromise !== undefined) {
-                    playPromise
-                        .then(() => {
-                            this.isPlaying = true;
-                            this.updatePlayButton();
-                            this.startVisualizer();
-                        })
-                        .catch(err => {
-                            console.error('Erro ao reproduzir:', err);
-                            this.showError('Erro ao iniciar reprodução. Tente novamente.');
-                            this.setStatus('offline', 'Erro de reprodução');
-                        });
-                }
-            },
-
-            pause() {
-                this.audio.pause();
-                this.isPlaying = false;
-                this.updatePlayButton();
-                this.stopVisualizer();
-            },
-
-            stop() {
-                this.audio.pause();
-                this.audio.currentTime = 0;
-                this.isPlaying = false;
-                this.updatePlayButton();
-                this.stopVisualizer();
-                this.setStatus('online', 'Parado');
-                this.progressFill.style.width = '0%';
-                this.currentTime.textContent = '0:00';
-            },
-
-            previousTrack() {
-                if (this.tracks.length === 0) return;
-                const newIndex = (this.currentTrackIndex - 1 + this.tracks.length) % this.tracks.length;
-                this.playTrack(newIndex);
-            },
-
-            nextTrack() {
-                if (this.tracks.length === 0) return;
-                const newIndex = (this.currentTrackIndex + 1) % this.tracks.length;
-                this.playTrack(newIndex);
-            },
-
-            toggleMute() {
-                if (this.isMuted) {
-                    this.audio.muted = false;
-                    this.isMuted = false;
-                    this.volumeSlider.value = this.previousVolume || 80;
-                    this.setVolume(this.volumeSlider.value);
-                    this.muteBtn.textContent = '🔊';
-                } else {
-                    this.previousVolume = this.volumeSlider.value;
-                    this.audio.muted = true;
-                    this.isMuted = true;
-                    this.volumeSlider.value = 0;
-                    this.muteBtn.textContent = '🔇';
-                }
-            },
-
-            setVolume(value) {
-                const volume = parseInt(value) / 100;
-                this.audio.volume = volume;
-
-                if (volume === 0) {
-                    this.muteBtn.textContent = '🔇';
-                    this.isMuted = true;
-                } else {
-                    this.muteBtn.textContent = '🔊';
-                    this.isMuted = false;
-                    this.audio.muted = false;
-                }
-            },
-
-            seek(percent) {
-                if (this.audio.duration && isFinite(this.audio.duration)) {
-                    this.audio.currentTime = percent * this.audio.duration;
-                }
-            },
-
-            updateProgress() {
-                if (this.audio.duration && isFinite(this.audio.duration)) {
-                    const percent = (this.audio.currentTime / this.audio.duration) * 100;
-                    this.progressFill.style.width = `${percent}%`;
-                    this.currentTime.textContent = this.formatTime(this.audio.currentTime);
-                } else {
-                    // Para streams ou quando duração não está disponível
-                    this.progressFill.style.width = '0%';
-                    this.currentTime.textContent = this.formatTime(this.audio.currentTime);
-                }
-            },
-
-            updatePlayButton() {
-                this.playBtn.textContent = this.isPlaying ? '⏸' : '▶';
-            },
-
-            updatePlaylistActive() {
-                const items = this.playlist.querySelectorAll('.playlist-item');
-                items.forEach((item, index) => {
-                    item.classList.toggle('active', index === this.currentTrackIndex);
-                });
-            },
-
-            setStatus(type, text) {
-                this.statusBadge.className = `status-badge ${type}`;
-                this.statusText.textContent = text;
-            },
-
-            showError(message) {
-                this.errorMessage.textContent = message;
-                this.errorMessage.classList.add('show');
-                setTimeout(() => this.hideError(), 8000);
-            },
-
-            hideError() {
-                this.errorMessage.classList.remove('show');
-            },
-
-            formatTime(seconds) {
-                if (isNaN(seconds) || !isFinite(seconds)) return '0:00';
-                const mins = Math.floor(seconds / 60);
-                const secs = Math.floor(seconds % 60);
-                return `${mins}:${secs.toString().padStart(2, '0')}`;
-            },
-
-            escapeHtml(text) {
-                const div = document.createElement('div');
-                div.textContent = text;
-                return div.innerHTML;
-            },
-
-            // Visualizador com animação via JavaScript (mais confiável que CSS puro)
-            startVisualizer() {
-                this.stopVisualizer(); // Limpa anterior
-                const bars = this.visualizer.querySelectorAll('.bar');
-
-                this.visualizerInterval = setInterval(() => {
-                    bars.forEach((bar) => {
-                        const height = 5 + Math.random() * 20;
-                        bar.style.height = `${height}px`;
+                    this.playlist.querySelector('div').addEventListener('click', () => {
+                        this.apiRetryCount = 0;
+                        this.loadPlaylist();
                     });
-                }, 150);
-            },
+                    this.playlistCount.textContent = '0 músicas';
+                },
 
-            stopVisualizer() {
-                if (this.visualizerInterval) {
-                    clearInterval(this.visualizerInterval);
-                    this.visualizerInterval = null;
+                cleanFileName(filename) {
+                    if (!filename) return 'Desconhecido';
+                    return filename
+                        .replace(/\.mp3$/i, '')
+                        .replace(/[_-]/g, ' ')
+                        .trim();
+                },
+
+                renderPlaylist() {
+                    this.playlist.innerHTML = '';
+
+                    this.tracks.forEach((track, index) => {
+                        const item = document.createElement('div');
+                        item.className = `playlist-item ${index === this.currentTrackIndex ? 'active' : ''}`;
+                        item.setAttribute('role', 'button');
+                        item.setAttribute('tabindex', '0');
+                        item.setAttribute('aria-label', `Tocar ${track.name}`);
+                        item.innerHTML = `
+                            <div class="playlist-item-number">${index + 1}</div>
+                            <div class="playlist-item-info">
+                                <div class="playlist-item-title">${this.escapeHtml(track.name)}</div>
+                            </div>
+                            <div class="playlist-item-duration">${index === this.currentTrackIndex && this.isPlaying ? '⏸' : '▶'}</div>
+                        `;
+
+                        const activate = (e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            this.handleUserInteraction();
+                            this.playTrack(index);
+                        };
+
+                        this.bindTouch(item, activate);
+
+                        item.addEventListener('keydown', (e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault();
+                                this.handleUserInteraction();
+                                this.playTrack(index);
+                            }
+                        });
+
+                        this.playlist.appendChild(item);
+                    });
+                },
+
+                // ===== TRACK CONTROL =====
+                loadTrack(index, autoPlay) {
+                    if (this.tracks.length === 0) return false;
+
+                    index = Math.max(0, Math.min(index, this.tracks.length - 1));
+                    this.currentTrackIndex = index;
+                    const track = this.tracks[index];
+                    const baseUrl = this.getBaseUrl();
+
+                    this.trackTitle.textContent = track.name;
+                    this.trackArtist.textContent = track.artist || 'Rádio Amigos do Seu Zé';
+                    this.updatePlaylistActive();
+
+                    const audioUrl = `${baseUrl}/audio/${encodeURIComponent(track.file)}`;
+
+                    if (this.audio.src !== audioUrl) {
+                        this.audio.src = audioUrl;
+                        this.audio.load();
+                        console.log('Loading track:', audioUrl);
+                    }
+
+                    return true;
+                },
+
+                playTrack(index) {
+                    if (!this.loadTrack(index, true)) return;
+
+                    const delay = this.isMobile ? 300 : 100;
+
+                    setTimeout(() => {
+                        this.play();
+                    }, delay);
+                },
+
+                togglePlay() {
+                    if (this.isPlaying) {
+                        this.pause();
+                    } else {
+                        this.play();
+                    }
+                },
+
+                play() {
+                    if (this.tracks.length === 0) {
+                        this.showError('Nenhuma música disponível');
+                        return;
+                    }
+
+                    if (!this.audio.src || this.audio.src === window.location.href) {
+                        this.loadTrack(this.currentTrackIndex);
+                    }
+
+                    // iOS/Safari: inicializar AudioContext
+                    if ((this.isIOS || this.isSafari) && !this.userInteracted) {
+                        this.showInteractionOverlay();
+                        return;
+                    }
+
+                    if (this.isIOS || this.isSafari) {
+                        this.initAudioContext();
+                    }
+
+                    const playPromise = this.audio.play();
+
+                    if (playPromise !== undefined) {
+                        playPromise
+                            .then(() => {
+                                this.isPlaying = true;
+                                this.updatePlayButton();
+                                this.startVisualizer();
+                                this.hideInteractionOverlay();
+                                console.log('Playback started');
+                            })
+                            .catch(err => {
+                                console.error('Play error:', err.name, err.message);
+
+                                if (err.name === 'NotAllowedError') {
+                                    this.autoplayBlocked = true;
+                                    if (!this.userInteracted) {
+                                        this.showInteractionOverlay();
+                                        this.showToast('Toque em Play para iniciar');
+                                    } else {
+                                        this.showToast('Toque em Play novamente');
+                                    }
+                                    this.setStatus('online', 'Toque para tocar');
+                                } else if (err.name === 'NotSupportedError') {
+                                    this.showError('Formato não suportado neste dispositivo');
+                                    setTimeout(() => this.nextTrack(), 1500);
+                                } else {
+                                    this.showError('Erro ao tocar. Tentando novamente...');
+                                    setTimeout(() => this.nextTrack(), 1500);
+                                }
+                            });
+                    }
+                },
+
+                pause() {
+                    this.audio.pause();
+                    this.isPlaying = false;
+                    this.updatePlayButton();
+                    this.stopVisualizer();
+                },
+
+                stop() {
+                    this.audio.pause();
+                    this.audio.currentTime = 0;
+                    this.isPlaying = false;
+                    this.updatePlayButton();
+                    this.stopVisualizer();
+                    this.setStatus('online', 'Parado');
+                    this.progressFill.style.width = '0%';
+                    this.currentTime.textContent = '0:00';
+                },
+
+                previousTrack() {
+                    if (this.tracks.length === 0) return;
+                    const newIndex = (this.currentTrackIndex - 1 + this.tracks.length) % this.tracks.length;
+                    this.playTrack(newIndex);
+                },
+
+                nextTrack() {
+                    if (this.tracks.length === 0) return;
+                    const newIndex = (this.currentTrackIndex + 1) % this.tracks.length;
+                    this.playTrack(newIndex);
+                },
+
+                // ===== VOLUME =====
+                toggleMute() {
+                    if (this.isMuted) {
+                        this.audio.muted = false;
+                        this.isMuted = false;
+                        this.volumeSlider.value = this.previousVolume || 80;
+                        this.setVolume(this.volumeSlider.value);
+                        this.muteBtn.textContent = '🔊';
+                    } else {
+                        this.previousVolume = this.volumeSlider.value;
+                        this.audio.muted = true;
+                        this.isMuted = true;
+                        this.volumeSlider.value = 0;
+                        this.muteBtn.textContent = '🔇';
+                    }
+                },
+
+                setVolume(value) {
+                    const volume = Math.max(0, Math.min(100, parseInt(value) || 0)) / 100;
+                    this.audio.volume = volume;
+
+                    if (volume === 0) {
+                        this.muteBtn.textContent = '🔇';
+                        this.isMuted = true;
+                        this.audio.muted = true;
+                    } else {
+                        this.muteBtn.textContent = '🔊';
+                        this.isMuted = false;
+                        this.audio.muted = false;
+                    }
+                },
+
+                // ===== PROGRESS =====
+                seek(percent) {
+                    if (this.audio.duration && isFinite(this.audio.duration) && this.audio.duration > 0) {
+                        this.audio.currentTime = percent * this.audio.duration;
+                    }
+                },
+
+                updateProgress() {
+                    const duration = this.audio.duration;
+                    const current = this.audio.currentTime;
+
+                    if (duration && isFinite(duration) && duration > 0) {
+                        const percent = (current / duration) * 100;
+                        this.progressFill.style.width = `${Math.min(100, percent)}%`;
+                        this.currentTime.textContent = this.formatTime(current);
+                    } else {
+                        this.progressFill.style.width = '0%';
+                        this.currentTime.textContent = this.formatTime(current);
+                    }
+                },
+
+                formatTime(seconds) {
+                    if (!isFinite(seconds) || isNaN(seconds) || seconds < 0) return '0:00';
+                    const mins = Math.floor(seconds / 60);
+                    const secs = Math.floor(seconds % 60);
+                    return `${mins}:${secs.toString().padStart(2, '0')}`;
+                },
+
+                // ===== UI UPDATES =====
+                updatePlayButton() {
+                    if (this.playBtn) {
+                        this.playBtn.textContent = this.isPlaying ? '⏸' : '▶';
+                    }
+                },
+
+                updatePlaylistActive() {
+                    const items = this.playlist.querySelectorAll('.playlist-item');
+                    items.forEach((item, index) => {
+                        item.classList.toggle('active', index === this.currentTrackIndex);
+                        const durationEl = item.querySelector('.playlist-item-duration');
+                        if (durationEl) {
+                            durationEl.textContent = (index === this.currentTrackIndex && this.isPlaying) ? '⏸' : '▶';
+                        }
+                    });
+                },
+
+                setStatus(type, text) {
+                    if (this.statusBadge && this.statusText) {
+                        this.statusBadge.className = `status-badge ${type}`;
+                        this.statusText.textContent = text;
+                    }
+                },
+
+                showError(message) {
+                    if (this.errorMessage) {
+                        this.errorMessage.textContent = message;
+                        this.errorMessage.classList.add('show');
+                        setTimeout(() => this.hideError(), 10000);
+                    }
+                },
+
+                hideError() {
+                    if (this.errorMessage) {
+                        this.errorMessage.classList.remove('show');
+                    }
+                },
+
+                showToast(message) {
+                    if (this.toast) {
+                        this.toast.textContent = message;
+                        this.toast.classList.add('show');
+                        setTimeout(() => {
+                            this.toast.classList.remove('show');
+                        }, 3000);
+                    }
+                },
+
+                escapeHtml(text) {
+                    if (!text) return '';
+                    const div = document.createElement('div');
+                    div.textContent = String(text);
+                    return div.innerHTML;
+                },
+
+                // ===== VISUALIZER =====
+                startVisualizer() {
+                    this.stopVisualizer();
+                    const bars = this.visualizer.querySelectorAll('.bar');
+                    if (!bars.length) return;
+
+                    this.visualizerInterval = setInterval(() => {
+                        bars.forEach((bar) => {
+                            const height = 5 + Math.random() * 20;
+                            bar.style.height = `${height}px`;
+                        });
+                    }, 120);
+                },
+
+                pauseVisualizer() {
+                    if (this.visualizerInterval) {
+                        clearInterval(this.visualizerInterval);
+                        this.visualizerInterval = null;
+                    }
+                },
+
+                stopVisualizer() {
+                    this.pauseVisualizer();
+                    const bars = this.visualizer.querySelectorAll('.bar');
+                    bars.forEach(bar => {
+                        bar.style.height = '5px';
+                    });
+                },
+
+                // ===== WEBSOCKET =====
+                connectWebSocket() {
+                    if (this.wsReconnectTimer) {
+                        clearTimeout(this.wsReconnectTimer);
+                    }
+
+                    try {
+                        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                        const wsUrl = `${protocol}//${window.location.host}`;
+
+                        this.ws = new WebSocket(wsUrl);
+
+                        this.ws.onopen = () => {
+                            console.log('WebSocket connected');
+                            this.ws.send(JSON.stringify({ type: 'ping' }));
+                        };
+
+                        this.ws.onmessage = (event) => {
+                            try {
+                                const data = JSON.parse(event.data);
+                                this.handleWsMessage(data);
+                            } catch (e) {
+                                console.log('WS parse error:', e);
+                            }
+                        };
+
+                        this.ws.onerror = (err) => {
+                            console.log('WebSocket error:', err);
+                        };
+
+                        this.ws.onclose = () => {
+                            console.log('WebSocket closed, reconnecting in 5s...');
+                            this.wsReconnectTimer = setTimeout(() => {
+                                this.connectWebSocket();
+                            }, 5000);
+                        };
+
+                    } catch (e) {
+                        console.log('WebSocket not available:', e);
+                    }
+                },
+
+                handleWsMessage(data) {
+                    if (data.type === 'metadata' && data.data) {
+                        this.trackTitle.textContent = data.data.title || 'Desconhecido';
+                        this.trackArtist.textContent = data.data.artist || 'Ponto de Umbanda';
+                    }
+                    if (data.type === 'state' && data.data) {
+                        const listeners = data.data.listeners || 0;
+                        const statusText = this.isPlaying ? 'Tocando' : 'Pronto';
+                        this.setStatus('online', `${statusText} · ${listeners} ouvinte${listeners !== 1 ? 's' : ''}`);
+                    }
+                    if (data.type === 'pong') {
+                        // Connection alive
+                    }
+                },
+
+                // ===== DESTROY =====
+                destroy() {
+                    this.stopVisualizer();
+                    if (this.ws) {
+                        this.ws.close();
+                    }
+                    if (this.wsReconnectTimer) {
+                        clearTimeout(this.wsReconnectTimer);
+                    }
+                    if (this.audio) {
+                        this.audio.pause();
+                        this.audio.src = '';
+                    }
+                    if (this.audioContext) {
+                        this.audioContext.close();
+                    }
                 }
-                const bars = this.visualizer.querySelectorAll('.bar');
-                bars.forEach(bar => {
-                    bar.style.height = '5px';
-                });
+            };
+
+            // Inicializar quando DOM estiver pronto
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', () => RadioPlayer.init());
+            } else {
+                RadioPlayer.init();
             }
-        };
 
-        // Inicializar quando DOM estiver pronto
-        document.addEventListener('DOMContentLoaded', () => {
-            RadioPlayer.init();
-        });
+            // Cleanup
+            window.addEventListener('beforeunload', () => {
+                RadioPlayer.destroy();
+            });
 
-        // Registrar Service Worker para PWA
+            // Expor globalmente para debug
+            window.RadioPlayer = RadioPlayer;
+
+        })();
+
+        // Service Worker
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('sw.js').catch(err => {
                 console.log('SW registration failed:', err);
