@@ -11,37 +11,6 @@ require('dotenv').config();
 const app = express();
 const server = http.createServer(app);
 
-// ================= CONFIGURAÇÃO DO WEBSOCKET =================
-// heartbeatInterval: tempo entre pings do servidor
-// heartbeatTimeout: tempo máximo para cliente responder pong
-const HEARTBEAT_INTERVAL = 30000;  // 30s
-const HEARTBEAT_TIMEOUT = 60000;   // 60s (2x o intervalo)
-
-const wss = new WebSocket.Server({
-  server,
-  // Permite conexões sem origin (navegadores mobile, extensões, etc.)
-  verifyClient: (info, done) => {
-    const origin = info.origin;
-    // Em produção, aceita origin válido OU sem origin (alguns clientes não enviam)
-    if (NODE_ENV === 'production') {
-      const allowedOrigins = [
-        'https://radioamigosdoseuze.com.br',
-        'https://www.radioamigosdoseuze.com.br',
-        'http://radioamigosdoseuze.com.br',
-        'http://www.radioamigosdoseuze.com.br'
-      ];
-      // Aceita se origin estiver na lista OU for undefined (clientes locais/teste)
-      if (!origin || allowedOrigins.includes(origin)) {
-        return done(true);
-      }
-      console.warn(`WebSocket origin bloqueado: ${origin}`);
-      return done(false, 403, 'Origin não autorizado');
-    }
-    // Desenvolvimento: aceita tudo
-    done(true);
-  }
-});
-
 // ================= CONFIG =================
 const PORT = process.env.PORT || 10000;
 const NODE_ENV = process.env.NODE_ENV || 'development';
@@ -49,6 +18,9 @@ const NODE_ENV = process.env.NODE_ENV || 'development';
 const ROOT_DIR = path.resolve(__dirname, '..');
 const FRONTEND_DIR = path.join(ROOT_DIR, 'frontend');
 const AUDIO_DIR = path.join(ROOT_DIR, 'audio');
+
+// ================= WEBSOCKET (SIMPLES, SEM VALIDAÇÃO AGRESSIVA) =================
+const wss = new WebSocket.Server({ server });
 
 // ================= MIDDLEWARE =================
 app.use(cors({
@@ -60,32 +32,16 @@ app.use(cors({
 
 app.use(express.json());
 
-// ================= LOG SYSTEM (ASSÍNCRONO) =================
+// ================= LOG SYSTEM =================
 const LOG_DIR = path.join(__dirname, '../logs');
 if (!fs.existsSync(LOG_DIR)) {
   fs.mkdirSync(LOG_DIR, { recursive: true });
 }
 
-const logQueue = [];
-let logWriting = false;
-
-function flushLogs() {
-  if (logWriting || logQueue.length === 0) return;
-  logWriting = true;
-  const batch = logQueue.splice(0, logQueue.length);
-  const data = batch.join('');
-  fs.appendFile(path.join(LOG_DIR, 'server.log'), data, (err) => {
-    logWriting = false;
-    if (err) console.error('Erro ao escrever log:', err);
-    if (logQueue.length > 0) flushLogs();
-  });
-}
-
 function log(level, message) {
   const line = `[${new Date().toISOString()}] [${level.toUpperCase()}] ${message}`;
   console.log(line);
-  logQueue.push(line + '\n');
-  flushLogs();
+  fs.appendFile(path.join(LOG_DIR, 'server.log'), line + '\n', () => {});
 }
 
 // ================= STATIC FILES =================
@@ -96,7 +52,7 @@ if (fs.existsSync(AUDIO_DIR)) {
   console.error(`Pasta de áudio não encontrada: ${AUDIO_DIR}`);
 }
 
-// ================= METADADOS ID3 =================
+// ================= METADADOS ID3 (opcional) =================
 let parseFile;
 try {
   const mm = require('music-metadata');
@@ -188,51 +144,50 @@ function getCurrentTrack() {
   return PLAYLIST[idx];
 }
 
-// ================= HELPERS DE BROADCAST SEGURO =================
-// Envia mensagem WebSocket com tratamento de erro
+// ================= BROADCAST SEGURO =================
 function safeWsSend(ws, data) {
   try {
     if (ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify(data));
     }
   } catch (err) {
-    log('warn', `Erro ao enviar WS: ${err.message}`);
-    // Marca como inativo para cleanup
-    ws.isAlive = false;
+    // Silencioso — não loga para não floodar
   }
 }
 
+function broadcast(data) {
+  const msg = JSON.stringify(data);
+  clients.forEach(ws => {
+    try {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(msg);
+      }
+    } catch (err) {
+      // Silencioso
+    }
+  });
+}
+
 function broadcastMetadata(track) {
-  const msg = {
+  broadcast({
     type: 'metadata',
     data: {
       title: track.title,
       artist: track.artist,
       file: track.file
     }
-  };
-  clients.forEach(ws => safeWsSend(ws, msg));
+  });
 }
 
 function broadcastState() {
   const track = getCurrentTrack();
-  const msg = {
+  broadcast({
     type: 'state',
     data: {
       listeners: streamClients,
       currentTrack: track || { title: 'Nenhuma música', artist: 'Ponto de Umbanda', file: '' },
       isLive: true,
       uptime: process.uptime()
-    }
-  };
-  clients.forEach(ws => safeWsSend(ws, msg));
-}
-
-function broadcastChat(data, excludeWs = null) {
-  const msg = { ...data };
-  clients.forEach(ws => {
-    if (ws !== excludeWs) {
-      safeWsSend(ws, msg);
     }
   });
 }
@@ -256,19 +211,11 @@ function startRadioStream() {
 function stopRadioStream() {
   isPlaying = false;
   if (ffmpegProcess) {
-    try {
-      ffmpegProcess.kill('SIGTERM');
-    } catch (e) {
-      // já morto
-    }
+    try { ffmpegProcess.kill('SIGTERM'); } catch (e) {}
     ffmpegProcess = null;
   }
   if (broadcastStream) {
-    try {
-      broadcastStream.end();
-    } catch (e) {
-      // já fechado
-    }
+    try { broadcastStream.end(); } catch (e) {}
     broadcastStream = null;
   }
   if (trackTimeout) {
@@ -301,7 +248,6 @@ function playNextTrack() {
   trackStartTime = Date.now();
   currentTrackDuration = track.duration * 1000;
 
-  // Criar o broadcast stream único
   if (broadcastStream) {
     try { broadcastStream.end(); } catch (e) {}
   }
@@ -330,8 +276,8 @@ function playNextTrack() {
     log('error', `Erro no stdout do ffmpeg: ${err.message}`);
   });
 
-  ffmpegProcess.stderr.on('data', (data) => {
-    // FFmpeg loga no stderr; silenciar em produção
+  ffmpegProcess.stderr.on('data', () => {
+    // FFmpeg loga no stderr; silenciar
   });
 
   ffmpegProcess.on('error', (err) => {
@@ -348,7 +294,6 @@ function playNextTrack() {
     }
   });
 
-  // Backup timeout
   trackTimeout = setTimeout(() => {
     if (isPlaying && ffmpegProcess) {
       log('warn', `⏭ Timeout atingido para ${track.title}`);
@@ -356,7 +301,7 @@ function playNextTrack() {
     }
   }, currentTrackDuration + 5000);
 
-  // Distribuir dados para clientes com tratamento de erro e backpressure
+  // Distribuir dados para clientes
   broadcastStream.on('data', (chunk) => {
     const deadResponses = [];
     activeResponses.forEach(res => {
@@ -365,19 +310,11 @@ function playNextTrack() {
         return;
       }
       try {
-        const ok = res.write(chunk);
-        // Se res.write retornar false, buffer está cheio (backpressure)
-        // Não fazemos pause aqui pois é stream ao vivo, mas marcamos
-        if (!ok) {
-          // Opcional: remover clientes lentos
-          // deadResponses.push(res);
-        }
+        res.write(chunk);
       } catch (err) {
-        log('warn', `Erro ao escrever no stream: ${err.message}`);
         deadResponses.push(res);
       }
     });
-    // Limpar responses mortos
     deadResponses.forEach(res => {
       activeResponses.delete(res);
       try { res.end(); } catch (e) {}
@@ -393,7 +330,7 @@ function playNextTrack() {
   });
 }
 
-// ================= CHAT COM RATE LIMITING =================
+// ================= CHAT =================
 const MAX_CHAT_HISTORY = 100;
 let chatHistory = [];
 let chatUsers = new Map();
@@ -438,17 +375,10 @@ function checkRateLimit(ws) {
   return true;
 }
 
-// ================= WEBSOCKET COM HEARTBEAT E CLEANUP =================
+// ================= WEBSOCKET (SIMPLES, COMO O QUE FUNCIONAVA) =================
 const clients = new Set();
 
-wss.on('connection', (ws, req) => {
-  // Inicializar heartbeat
-  ws.isAlive = true;
-
-  ws.on('pong', () => {
-    ws.isAlive = true;
-  });
-
+wss.on('connection', (ws) => {
   clients.add(ws);
   log('info', `Cliente WebSocket conectado. Total: ${clients.size}`);
 
@@ -476,7 +406,7 @@ wss.on('connection', (ws, req) => {
     });
   }
 
-  broadcastChat({ type: 'online_count', count: getOnlineCount() });
+  broadcast({ type: 'online_count', count: getOnlineCount() });
 
   ws.on('message', (message) => {
     try {
@@ -502,7 +432,7 @@ wss.on('connection', (ws, req) => {
           }
 
           const chatMsg = addChatMessage(name, msgText);
-          broadcastChat(chatMsg);
+          broadcast(chatMsg);
           log('info', `Chat: ${name}: ${msgText.substring(0, 50)}`);
         }
       }
@@ -511,8 +441,8 @@ wss.on('connection', (ws, req) => {
         const name = String(data.name).trim().substring(0, 20);
         if (name) {
           chatUsers.set(ws, { name, joinedAt: Date.now() });
-          broadcastChat({ type: 'system', message: `👋 ${name} entrou no chat` });
-          broadcastChat({ type: 'online_count', count: getOnlineCount() });
+          broadcast({ type: 'system', message: `👋 ${name} entrou no chat` });
+          broadcast({ type: 'online_count', count: getOnlineCount() });
         }
       }
 
@@ -521,17 +451,17 @@ wss.on('connection', (ws, req) => {
     }
   });
 
-  ws.on('close', (code, reason) => {
+  ws.on('close', () => {
     const userInfo = chatUsers.get(ws);
     clients.delete(ws);
     chatUsers.delete(ws);
 
     if (userInfo) {
-      broadcastChat({ type: 'system', message: `👋 ${userInfo.name} saiu do chat` });
+      broadcast({ type: 'system', message: `👋 ${userInfo.name} saiu do chat` });
     }
-    broadcastChat({ type: 'online_count', count: getOnlineCount() });
+    broadcast({ type: 'online_count', count: getOnlineCount() });
 
-    log('info', `Cliente desconectado (code: ${code}, reason: ${reason?.toString() || 'n/a'}). Total: ${clients.size}`);
+    log('info', `Cliente desconectado. Total: ${clients.size}`);
   });
 
   ws.on('error', (err) => {
@@ -541,36 +471,14 @@ wss.on('connection', (ws, req) => {
   });
 });
 
-// ================= HEARTBEAT: LIMPA CONEXÕES ZUMBIS =================
-const heartbeatInterval = setInterval(() => {
-  const deadClients = [];
+// ================= PING WS (ANTI DROP RENDER) =================
+setInterval(() => {
   clients.forEach(ws => {
-    if (ws.isAlive === false) {
-      deadClients.push(ws);
-      return;
-    }
-    ws.isAlive = false;
-    try {
+    if (ws.readyState === WebSocket.OPEN) {
       ws.ping();
-    } catch (err) {
-      deadClients.push(ws);
     }
   });
-
-  // Fechar e remover zumbis
-  deadClients.forEach(ws => {
-    log('warn', 'Removendo WebSocket zumbi (não respondeu pong)');
-    clients.delete(ws);
-    chatUsers.delete(ws);
-    try {
-      ws.terminate();
-    } catch (e) {}
-  });
-
-  if (deadClients.length > 0) {
-    broadcastChat({ type: 'online_count', count: getOnlineCount() });
-  }
-}, HEARTBEAT_INTERVAL);
+}, 25000);
 
 // ================= API ROUTES =================
 app.get('/api/playlist', (req, res) => {
@@ -595,6 +503,10 @@ app.get('/api/status', (req, res) => {
     elapsed: elapsed,
     duration: track ? track.duration : 0
   });
+});
+
+app.get('/api/history', (req, res) => {
+  res.json(chatHistory.slice(0, 30));
 });
 
 // ================= STREAM (RÁDIO AO VIVO) =================
@@ -685,20 +597,14 @@ setInterval(() => {
 function gracefulShutdown(signal) {
   log('info', `Recebido ${signal}. Encerrando graciosamente...`);
 
-  clearInterval(heartbeatInterval);
   stopRadioStream();
 
   clients.forEach(ws => {
-    try {
-      ws.close(1001, 'Servidor reiniciando');
-    } catch (e) {}
+    try { ws.close(1001, 'Servidor reiniciando'); } catch (e) {}
   });
 
   server.close(() => {
     log('info', 'Servidor HTTP fechado');
-    if (logQueue.length > 0) {
-      fs.appendFileSync(path.join(LOG_DIR, 'server.log'), logQueue.join(''));
-    }
     process.exit(0);
   });
 
@@ -719,7 +625,9 @@ process.on('SIGINT', () => gracefulShutdown('SIGINT'));
   console.log('🎵 RÁDIO AMIGOS DO SEU ZÉ');
   console.log('========================================');
   console.log('ROOT_DIR:', ROOT_DIR);
+  console.log('FRONTEND_DIR:', FRONTEND_DIR);
   console.log('AUDIO_DIR:', AUDIO_DIR);
+  console.log('Audio existe?', fs.existsSync(AUDIO_DIR));
   console.log(`Músicas: ${PLAYLIST.length}`);
   console.log('');
 
@@ -728,6 +636,10 @@ process.on('SIGINT', () => gracefulShutdown('SIGINT'));
     PLAYLIST.forEach((t, i) => {
       console.log(`  ${i + 1}. ${t.title} (${t.duration}s)`);
     });
+  }
+
+  if (fs.existsSync(AUDIO_DIR)) {
+    console.log('Arquivos:', fs.readdirSync(AUDIO_DIR));
   }
 
   server.listen(PORT, '0.0.0.0', () => {

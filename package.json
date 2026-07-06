@@ -1,20 +1,33 @@
 {
   "name": "radio-amigos-seu-ze",
-  "version": "1.0.0",
-  "description": "Rádio Amigos do Seu Zé - Ponto de Umbanda",
+  "version": "2.0.0",
+  "description": "Rádio Amigos do Seu Zé - Streaming ao vivo com chat",
   "main": "backend/server.js",
   "scripts": {
     "start": "node backend/server.js",
-    "dev": "node backend/server.js",
-    "broadcaster": "node backend/broadcaster.js"
-  },
-  "dependencies": {
-    "cors": "^2.8.5",
-    "dotenv": "^17.4.2",
-    "express": "^4.18.2",
-    "ws": "^8.21.0"
+    "dev": "nodemon backend/server.js",
+    "test": "jest"
   },
   "engines": {
     "node": ">=18.0.0"
-  }
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.0",
+    "music-metadata": "^10.5.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.0"
+  },
+  "keywords": [
+    "radio",
+    "streaming",
+    "websocket",
+    "umbanda",
+    "nodejs"
+  ],
+  "author": "Rádio Amigos do Seu Zé",
+  "license": "MIT"
 }
