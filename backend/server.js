@@ -19,7 +19,7 @@ const ROOT_DIR = path.resolve(__dirname, '..');
 const FRONTEND_DIR = path.join(ROOT_DIR, 'frontend');
 const AUDIO_DIR = path.join(ROOT_DIR, 'audio');
 
-// ================= WEBSOCKET (SIMPLES, SEM VALIDAÇÃO AGRESSIVA) =================
+// ================= WEBSOCKET =================
 const wss = new WebSocket.Server({ server });
 
 // ================= MIDDLEWARE =================
@@ -52,7 +52,7 @@ if (fs.existsSync(AUDIO_DIR)) {
   console.error(`Pasta de áudio não encontrada: ${AUDIO_DIR}`);
 }
 
-// ================= METADADOS ID3 (opcional) =================
+// ================= METADADOS ID3 =================
 let parseFile;
 try {
   const mm = require('music-metadata');
@@ -151,7 +151,7 @@ function safeWsSend(ws, data) {
       ws.send(JSON.stringify(data));
     }
   } catch (err) {
-    // Silencioso — não loga para não floodar
+    // Silencioso
   }
 }
 
@@ -193,6 +193,47 @@ function broadcastState() {
 }
 
 // ================= SISTEMA DE STREAMING =================
+
+// 🔧 NOVO: Limpa recursos do track anterior de forma segura
+function cleanupPreviousTrack() {
+  if (trackTimeout) {
+    clearTimeout(trackTimeout);
+    trackTimeout = null;
+  }
+
+  if (broadcastStream) {
+    if (ffmpegProcess && ffmpegProcess.stdout) {
+      try { ffmpegProcess.stdout.unpipe(broadcastStream); } catch (e) {}
+    }
+    broadcastStream.removeAllListeners('data');
+    broadcastStream.removeAllListeners('error');
+    try { broadcastStream.end(); } catch (e) {}
+    broadcastStream = null;
+  }
+
+  if (ffmpegProcess) {
+    const oldProcess = ffmpegProcess;
+    ffmpegProcess = null;
+
+    try {
+      oldProcess.stdout.removeAllListeners('data');
+      oldProcess.stdout.removeAllListeners('error');
+      oldProcess.stderr.removeAllListeners('data');
+      oldProcess.removeAllListeners('error');
+      oldProcess.removeAllListeners('close');
+      oldProcess.kill('SIGTERM');
+    } catch (e) {}
+
+    setTimeout(() => {
+      try {
+        if (!oldProcess.killed) {
+          oldProcess.kill('SIGKILL');
+        }
+      } catch (e) {}
+    }, 3000);
+  }
+}
+
 function startRadioStream() {
   if (PLAYLIST.length === 0) {
     log('error', 'Nenhuma música na playlist');
@@ -210,23 +251,15 @@ function startRadioStream() {
 
 function stopRadioStream() {
   isPlaying = false;
-  if (ffmpegProcess) {
-    try { ffmpegProcess.kill('SIGTERM'); } catch (e) {}
-    ffmpegProcess = null;
-  }
-  if (broadcastStream) {
-    try { broadcastStream.end(); } catch (e) {}
-    broadcastStream = null;
-  }
-  if (trackTimeout) {
-    clearTimeout(trackTimeout);
-    trackTimeout = null;
-  }
+  cleanupPreviousTrack();
   log('info', '⏹ Rádio parada');
 }
 
 function playNextTrack() {
   if (!isPlaying) return;
+
+  // 🔧 NOVO: Sempre limpa o track anterior antes de iniciar o próximo
+  cleanupPreviousTrack();
 
   const track = getNextTrack();
   if (!track) {
@@ -248,9 +281,6 @@ function playNextTrack() {
   trackStartTime = Date.now();
   currentTrackDuration = track.duration * 1000;
 
-  if (broadcastStream) {
-    try { broadcastStream.end(); } catch (e) {}
-  }
   broadcastStream = new PassThrough();
 
   const ffmpegPath = process.env.FFMPEG_PATH || 'ffmpeg';
@@ -282,24 +312,59 @@ function playNextTrack() {
 
   ffmpegProcess.on('error', (err) => {
     log('error', `Erro ao iniciar ffmpeg: ${err.message}`);
-    setTimeout(() => playNextTrack(), 2000);
-  });
-
-  ffmpegProcess.on('close', (code) => {
-    if (isPlaying) {
-      if (code !== 0 && code !== null) {
-        log('warn', `FFmpeg encerrou com código ${code}`);
-      }
-      setTimeout(() => playNextTrack(), 1000);
-    }
-  });
-
-  trackTimeout = setTimeout(() => {
     if (isPlaying && ffmpegProcess) {
-      log('warn', `⏭ Timeout atingido para ${track.title}`);
-      try { ffmpegProcess.kill('SIGTERM'); } catch (e) {}
+      setTimeout(() => playNextTrack(), 2000);
     }
-  }, currentTrackDuration + 5000);
+  });
+
+  ffmpegProcess.on('close', (code, signal) => {
+    log('info', `FFmpeg encerrou (código: ${code}, sinal: ${signal})`);
+
+    if (!isPlaying) return;
+
+    // 🔧 CORRIGIDO: Se foi encerrado por sinal (SIGTERM/SIGKILL), não avança
+    if (signal) {
+      log('info', `FFmpeg encerrou por sinal ${signal}, não avançando track`);
+      return;
+    }
+
+    // 🔧 CORRIGIDO: Se encerrou com erro, tenta de novo
+    if (code !== 0 && code !== null) {
+      log('warn', `FFmpeg encerrou com erro ${code}, tentando próxima música em 2s`);
+      setTimeout(() => playNextTrack(), 2000);
+      return;
+    }
+
+    // 🔧 CORRIGIDO: Só avança se a música realmente terminou (tempo decorrido >= 70% da duração)
+    const elapsed = Date.now() - trackStartTime;
+    const minElapsed = Math.max(currentTrackDuration * 0.7, 5000);
+
+    if (elapsed < minElapsed) {
+      log('warn', `FFmpeg encerrou cedo (${elapsed}ms < ${minElapsed}ms), tentando de novo em 2s`);
+      setTimeout(() => playNextTrack(), 2000);
+      return;
+    }
+
+    // Tudo certo, avança para próxima música
+    setTimeout(() => playNextTrack(), 1000);
+  });
+
+  // 🔧 CORRIGIDO: Timeout mais generoso (duração + 30s)
+  trackTimeout = setTimeout(() => {
+    if (!isPlaying) return;
+
+    const elapsed = Date.now() - trackStartTime;
+
+    if (elapsed > currentTrackDuration + 30000) {
+      log('warn', `⏭ Timeout atingido para ${track.title} (${elapsed}ms > ${currentTrackDuration + 30000}ms)`);
+      cleanupPreviousTrack();
+      if (isPlaying) {
+        setTimeout(() => playNextTrack(), 1000);
+      }
+    } else {
+      log('info', `Timeout cancelado — música ainda dentro do tempo normal`);
+    }
+  }, currentTrackDuration + 35000);
 
   // Distribuir dados para clientes
   broadcastStream.on('data', (chunk) => {
@@ -375,14 +440,13 @@ function checkRateLimit(ws) {
   return true;
 }
 
-// ================= WEBSOCKET (SIMPLES, COMO O QUE FUNCIONAVA) =================
+// ================= WEBSOCKET =================
 const clients = new Set();
 
 wss.on('connection', (ws) => {
   clients.add(ws);
   log('info', `Cliente WebSocket conectado. Total: ${clients.size}`);
 
-  // Enviar estado atual
   const track = getCurrentTrack();
   safeWsSend(ws, {
     type: 'metadata',
@@ -471,7 +535,7 @@ wss.on('connection', (ws) => {
   });
 });
 
-// ================= PING WS (ANTI DROP RENDER) =================
+// ================= PING WS =================
 setInterval(() => {
   clients.forEach(ws => {
     if (ws.readyState === WebSocket.OPEN) {
