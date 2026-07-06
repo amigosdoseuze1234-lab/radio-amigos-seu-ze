@@ -130,6 +130,7 @@ let activeResponses = new Set();
 let trackStartTime = 0;
 let currentTrackDuration = 0;
 let trackTimeout = null;
+let consecutiveFailures = 0; // 🔧 NOVO: contador de falhas seguidas
 
 function getNextTrack() {
   if (PLAYLIST.length === 0) return null;
@@ -207,7 +208,9 @@ function cleanupPreviousTrack() {
     }
     broadcastStream.removeAllListeners('data');
     broadcastStream.removeAllListeners('error');
-    try { broadcastStream.end(); } catch (e) {}
+    // 🔧 NÃO damos end() no broadcastStream se ainda tem clientes!
+    // Deixamos ele morrer naturalmente ou só removemos listeners
+    try { broadcastStream.destroy(); } catch (e) {}
     broadcastStream = null;
   }
 
@@ -245,12 +248,14 @@ function startRadioStream() {
   }
 
   isPlaying = true;
+  consecutiveFailures = 0; // 🔧 reset
   log('info', '🎵 Iniciando streaming da rádio...');
   playNextTrack();
 }
 
 function stopRadioStream() {
   isPlaying = false;
+  consecutiveFailures = 0; // 🔧 reset
   cleanupPreviousTrack();
   log('info', '⏹ Rádio parada');
 }
@@ -258,7 +263,6 @@ function stopRadioStream() {
 function playNextTrack() {
   if (!isPlaying) return;
 
-  // 🔧 NOVO: Sempre limpa o track anterior antes de iniciar o próximo
   cleanupPreviousTrack();
 
   const track = getNextTrack();
@@ -270,6 +274,13 @@ function playNextTrack() {
 
   if (!fs.existsSync(track.path)) {
     log('error', `Arquivo não encontrado: ${track.path}`);
+    setTimeout(() => playNextTrack(), 1000);
+    return;
+  }
+
+  // 🔧 NOVO: Verifica se arquivo tem conteúdo
+  if (track.size === 0) {
+    log('error', `Arquivo vazio: ${track.path}`);
     setTimeout(() => playNextTrack(), 1000);
     return;
   }
@@ -300,20 +311,33 @@ function playNextTrack() {
     stdio: ['ignore', 'pipe', 'pipe']
   });
 
+  // 🔧 NOVO: Buffer pra capturar stderr em caso de erro
+  let stderrBuffer = '';
+
   ffmpegProcess.stdout.pipe(broadcastStream, { end: false });
 
   ffmpegProcess.stdout.on('error', (err) => {
     log('error', `Erro no stdout do ffmpeg: ${err.message}`);
   });
 
-  ffmpegProcess.stderr.on('data', () => {
-    // FFmpeg loga no stderr; silenciar
+  ffmpegProcess.stderr.on('data', (data) => {
+    // 🔧 CAPTURA stderr pra debug em caso de erro
+    stderrBuffer += data.toString();
+    // Mantém só os últimos 2KB
+    if (stderrBuffer.length > 2048) {
+      stderrBuffer = stderrBuffer.slice(-2048);
+    }
   });
 
   ffmpegProcess.on('error', (err) => {
     log('error', `Erro ao iniciar ffmpeg: ${err.message}`);
-    if (isPlaying && ffmpegProcess) {
+    consecutiveFailures++;
+    if (isPlaying && consecutiveFailures < 3) {
       setTimeout(() => playNextTrack(), 2000);
+    } else if (consecutiveFailures >= 3) {
+      log('error', `Muitas falhas seguidas (${consecutiveFailures}), pulando música...`);
+      consecutiveFailures = 0;
+      setTimeout(() => playNextTrack(), 1000);
     }
   });
 
@@ -322,20 +346,36 @@ function playNextTrack() {
 
     if (!isPlaying) return;
 
-    // 🔧 CORRIGIDO: Se foi encerrado por sinal (SIGTERM/SIGKILL), não avança
+    // Se foi encerrado por sinal (SIGTERM/SIGKILL do cleanup), não avança
     if (signal) {
       log('info', `FFmpeg encerrou por sinal ${signal}, não avançando track`);
       return;
     }
 
-    // 🔧 CORRIGIDO: Se encerrou com erro, tenta de novo
+    // Se encerrou com erro
     if (code !== 0 && code !== null) {
-      log('warn', `FFmpeg encerrou com erro ${code}, tentando próxima música em 2s`);
+      consecutiveFailures++;
+      log('warn', `FFmpeg encerrou com erro ${code} (falha ${consecutiveFailures}/3)`);
+      // 🔧 Loga o stderr pra identificar o problema
+      if (stderrBuffer) {
+        log('error', `FFmpeg stderr: ${stderrBuffer.trim().split('\n').pop()}`);
+      }
+
+      if (consecutiveFailures >= 3) {
+        log('error', 'Muitas falhas seguidas, pulando para próxima música');
+        consecutiveFailures = 0;
+        setTimeout(() => playNextTrack(), 1000);
+        return;
+      }
+
       setTimeout(() => playNextTrack(), 2000);
       return;
     }
 
-    // 🔧 CORRIGIDO: Só avança se a música realmente terminou (tempo decorrido >= 70% da duração)
+    // FFmpeg encerrou com sucesso (code === 0)
+    consecutiveFailures = 0; // 🔧 reset
+
+    // Só avança se a música realmente terminou
     const elapsed = Date.now() - trackStartTime;
     const minElapsed = Math.max(currentTrackDuration * 0.7, 5000);
 
@@ -349,7 +389,7 @@ function playNextTrack() {
     setTimeout(() => playNextTrack(), 1000);
   });
 
-  // 🔧 CORRIGIDO: Timeout mais generoso (duração + 30s)
+  // Timeout generoso
   trackTimeout = setTimeout(() => {
     if (!isPlaying) return;
 
@@ -365,6 +405,15 @@ function playNextTrack() {
       log('info', `Timeout cancelado — música ainda dentro do tempo normal`);
     }
   }, currentTrackDuration + 35000);
+
+  // 🔧 NOVO: Envia um chunk inicial de silêncio pra "acordar" os players
+  // Alguns players não começam a tocar até receberem dados
+  const silenceChunk = Buffer.alloc(1024, 0);
+  activeResponses.forEach(res => {
+    if (!res.destroyed && !res.writableEnded) {
+      try { res.write(silenceChunk); } catch (e) {}
+    }
+  });
 
   // Distribuir dados para clientes
   broadcastStream.on('data', (chunk) => {
