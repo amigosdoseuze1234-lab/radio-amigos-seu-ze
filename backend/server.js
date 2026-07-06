@@ -241,7 +241,15 @@ console.log('ROOT_DIR:', ROOT_DIR);
 console.log('FRONTEND_DIR:', FRONTEND_DIR);
 console.log('AUDIO_DIR:', AUDIO_DIR);
 console.log('Quantidade de músicas:', PLAYLIST.length);
+console.log("ROOT_DIR:", ROOT_DIR);
+console.log("FRONTEND_DIR:", FRONTEND_DIR);
+console.log("AUDIO_DIR:", AUDIO_DIR);
+console.log("Audio existe?", fs.existsSync(AUDIO_DIR));
 
+if (fs.existsSync(AUDIO_DIR)) {
+    console.log("Arquivos:");
+    console.log(fs.readdirSync(AUDIO_DIR));
+}
 server.listen(PORT, '0.0.0.0', () => {
   log('info', `Servidor rodando na porta ${PORT}`);
 });

@@ -1,0 +1,2081 @@
+=========================================
+RELATÓRIO COMPLETO DA RÁDIO ONLINE
+=========================================
+
+Data:
+sáb 04 jul 2026 13:18:01 -03
+
+===== GIT STATUS =====
+On branch main
+Changes not staged for commit:
+  (use "git add/rm <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	deleted:    RELATORIO_RADIO.txt
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+	RELATORIO_COMPLETO_RADIO.txt
+
+no changes added to commit (use "git add" and/or "git commit -a")
+
+===== ÚLTIMOS COMMITS =====
+22c2a84 Atualiza interface da rádio
+b33980c Adiciona dependência dotenv
+201226e Adiciona dependência ws
+5ab9977 Melhora logs e correção do stream
+2e75c42 Corrige reprodução de áudio no Render
+2804154 Corrige carregamento automático da playlist e streaming de áudio
+0ff4aa3 Atualização do projeto
+cce7a1a Reorganização da estrutura do projeto e correções iniciais
+54490ae Correção do player da rádio e ajustes no HTML do frontend
+7763156 Correção server.js: melhorias no stream, websocket e paths de áudio
+
+===== PACKAGE.JSON =====
+{
+  "name": "radio-amigos-seu-ze",
+  "version": "1.0.0",
+  "description": "Rádio Amigos do Seu Zé - Ponto de Umbanda",
+  "main": "backend/server.js",
+  "scripts": {
+    "start": "node backend/server.js",
+    "dev": "node backend/server.js",
+    "broadcaster": "node backend/broadcaster.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^17.4.2",
+    "express": "^4.18.2",
+    "ws": "^8.21.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
+
+===== ESTRUTURA DO PROJETO =====
+./package.json
+./docs/GUIA_DEPLOY.md
+./docs/ARQUITETURA.md
+./.env
+./package-lock.json
+./README.md
+./scripts/deploy.js
+./scripts/install.sh
+./backend/broadcaster.js
+./backend/server.js
+./backend/streamer.js
+./audio/Oxossi é oke aro.mp3
+./audio/Passo da Malandragem.mp3
+./audio/Ogum Beira Mar.mp3
+./audio/santo Antônio.mp3
+./audio/7 Espadas Ogum.mp3
+./audio/Batismo.mp3
+./audio/Saudação às Sete Linhas.mp3
+./audio/Benzimento da Lua.mp3
+./audio/Caboclo Pedra Preta.mp3
+./audio/quatro da manhã.mp3
+./audio/preto velho .mp3
+./audio/Altar E Tronqueira.mp3
+./audio/umbanda.m3u
+./audio/ogum .mp3
+./audio/Exu é lei.mp3
+./audio/Jurema .mp3
+./audio/Rosa Caveira.mp3
+./audio/a vida e assim mesmo como ela e.mp3
+./audio/marinheiros .mp3
+./audio/Luz de Oxalá.mp3
+./audio/jangadeiro.mp3
+./audio/João Batista .mp3
+./audio/odociaba.mp3
+./audio/Xangô é corisco.mp3
+./audio/ciganos.mp3
+./logs/server.log
+./.env.example
+./RELATORIO_COMPLETO_RADIO.txt
+./frontend/css/style.css
+./frontend/sw.js
+./frontend/manifest.json
+./frontend/index.html
+./frontend/js/app.js
+./frontend/js/app.js.backup
+./node_modules/parseurl/package.json
+./node_modules/parseurl/index.js
+./node_modules/parseurl/LICENSE
+./node_modules/parseurl/README.md
+./node_modules/parseurl/HISTORY.md
+./node_modules/mime-types/package.json
+./node_modules/mime-types/index.js
+./node_modules/mime-types/LICENSE
+./node_modules/mime-types/README.md
+./node_modules/mime-types/HISTORY.md
+./node_modules/side-channel/package.json
+./node_modules/side-channel/.editorconfig
+./node_modules/side-channel/index.js
+./node_modules/side-channel/.github/FUNDING.yml
+./node_modules/side-channel/tsconfig.json
+./node_modules/side-channel/LICENSE
+./node_modules/side-channel/README.md
+./node_modules/side-channel/CHANGELOG.md
+./node_modules/side-channel/test/index.js
+./node_modules/side-channel/.eslintrc
+./node_modules/side-channel/index.d.ts
+./node_modules/side-channel/.nycrc
+./node_modules/accepts/package.json
+./node_modules/accepts/index.js
+./node_modules/accepts/LICENSE
+./node_modules/accepts/README.md
+./node_modules/accepts/HISTORY.md
+./node_modules/inherits/package.json
+./node_modules/inherits/inherits.js
+./node_modules/inherits/LICENSE
+./node_modules/inherits/README.md
+./node_modules/inherits/inherits_browser.js
+./node_modules/safer-buffer/package.json
+./node_modules/safer-buffer/Porting-Buffer.md
+./node_modules/safer-buffer/dangerous.js
+./node_modules/safer-buffer/LICENSE
+./node_modules/safer-buffer/tests.js
+./node_modules/safer-buffer/safer.js
+./node_modules/safer-buffer/Readme.md
+./node_modules/etag/package.json
+./node_modules/etag/index.js
+./node_modules/etag/LICENSE
+./node_modules/etag/README.md
+./node_modules/etag/HISTORY.md
+./node_modules/cors/package.json
+./node_modules/cors/LICENSE
+./node_modules/cors/README.md
+./node_modules/cors/lib/index.js
+./node_modules/ipaddr.js/package.json
+./node_modules/ipaddr.js/LICENSE
+./node_modules/ipaddr.js/README.md
+./node_modules/ipaddr.js/ipaddr.min.js
+./node_modules/ipaddr.js/lib/ipaddr.js
+./node_modules/ipaddr.js/lib/ipaddr.js.d.ts
+./node_modules/debug/package.json
+./node_modules/debug/.npmignore
+./node_modules/debug/.coveralls.yml
+./node_modules/debug/karma.conf.js
+./node_modules/debug/LICENSE
+./node_modules/debug/README.md
+./node_modules/debug/Makefile
+./node_modules/debug/node.js
+./node_modules/debug/.travis.yml
+./node_modules/debug/CHANGELOG.md
+./node_modules/debug/.eslintrc
+./node_modules/debug/component.json
+./node_modules/debug/src/index.js
+./node_modules/debug/src/debug.js
+./node_modules/debug/src/node.js
+./node_modules/debug/src/browser.js
+./node_modules/debug/src/inspector-log.js
+./node_modules/express/package.json
+./node_modules/express/index.js
+./node_modules/express/History.md
+./node_modules/express/LICENSE
+./node_modules/express/Readme.md
+./node_modules/express/lib/request.js
+./node_modules/express/lib/express.js
+./node_modules/express/lib/response.js
+./node_modules/express/lib/application.js
+./node_modules/express/lib/router/index.js
+./node_modules/express/lib/router/layer.js
+./node_modules/express/lib/router/route.js
+./node_modules/express/lib/middleware/query.js
+./node_modules/express/lib/middleware/init.js
+./node_modules/express/lib/utils.js
+./node_modules/express/lib/view.js
+./node_modules/has-symbols/shams.js
+./node_modules/has-symbols/package.json
+./node_modules/has-symbols/index.js
+./node_modules/has-symbols/.github/FUNDING.yml
+./node_modules/has-symbols/tsconfig.json
+./node_modules/has-symbols/LICENSE
+./node_modules/has-symbols/README.md
+./node_modules/has-symbols/CHANGELOG.md
+./node_modules/has-symbols/test/index.js
+./node_modules/has-symbols/test/tests.js
+./node_modules/has-symbols/test/shams/core-js.js
+./node_modules/has-symbols/test/shams/get-own-property-symbols.js
+./node_modules/has-symbols/.eslintrc
+./node_modules/has-symbols/index.d.ts
+./node_modules/has-symbols/shams.d.ts
+./node_modules/has-symbols/.nycrc
+./node_modules/get-proto/package.json
+./node_modules/get-proto/index.js
+./node_modules/get-proto/.github/FUNDING.yml
+./node_modules/get-proto/tsconfig.json
+./node_modules/get-proto/LICENSE
+./node_modules/get-proto/README.md
+./node_modules/get-proto/Reflect.getPrototypeOf.js
+./node_modules/get-proto/CHANGELOG.md
+./node_modules/get-proto/Object.getPrototypeOf.js
+./node_modules/get-proto/test/index.js
+./node_modules/get-proto/.eslintrc
+./node_modules/get-proto/Reflect.getPrototypeOf.d.ts
+./node_modules/get-proto/index.d.ts
+./node_modules/get-proto/Object.getPrototypeOf.d.ts
+./node_modules/get-proto/.nycrc
+./node_modules/safe-buffer/package.json
+./node_modules/safe-buffer/index.js
+./node_modules/safe-buffer/LICENSE
+./node_modules/safe-buffer/README.md
+./node_modules/safe-buffer/index.d.ts
+./node_modules/es-errors/package.json
+./node_modules/es-errors/eval.js
+./node_modules/es-errors/index.js
+./node_modules/es-errors/.github/FUNDING.yml
+./node_modules/es-errors/tsconfig.json
+./node_modules/es-errors/LICENSE
+./node_modules/es-errors/README.md
+./node_modules/es-errors/eval.d.ts
+./node_modules/es-errors/ref.js
+./node_modules/es-errors/range.d.ts
+./node_modules/es-errors/CHANGELOG.md
+./node_modules/es-errors/test/index.js
+./node_modules/es-errors/syntax.js
+./node_modules/es-errors/range.js
+./node_modules/es-errors/uri.d.ts
+./node_modules/es-errors/.eslintrc
+./node_modules/es-errors/type.d.ts
+./node_modules/es-errors/type.js
+./node_modules/es-errors/index.d.ts
+./node_modules/es-errors/ref.d.ts
+./node_modules/es-errors/syntax.d.ts
+./node_modules/es-errors/uri.js
+./node_modules/side-channel-weakmap/package.json
+./node_modules/side-channel-weakmap/.editorconfig
+./node_modules/side-channel-weakmap/index.js
+./node_modules/side-channel-weakmap/.github/FUNDING.yml
+./node_modules/side-channel-weakmap/tsconfig.json
+./node_modules/side-channel-weakmap/LICENSE
+./node_modules/side-channel-weakmap/README.md
+./node_modules/side-channel-weakmap/CHANGELOG.md
+./node_modules/side-channel-weakmap/test/index.js
+./node_modules/side-channel-weakmap/.eslintrc
+./node_modules/side-channel-weakmap/index.d.ts
+./node_modules/side-channel-weakmap/.nycrc
+./node_modules/fresh/package.json
+./node_modules/fresh/index.js
+./node_modules/fresh/LICENSE
+./node_modules/fresh/README.md
+./node_modules/fresh/HISTORY.md
+./node_modules/math-intrinsics/floor.d.ts
+./node_modules/math-intrinsics/package.json
+./node_modules/math-intrinsics/max.d.ts
+./node_modules/math-intrinsics/abs.d.ts
+./node_modules/math-intrinsics/sign.js
+./node_modules/math-intrinsics/isNegativeZero.d.ts
+./node_modules/math-intrinsics/pow.d.ts
+./node_modules/math-intrinsics/.github/FUNDING.yml
+./node_modules/math-intrinsics/sign.d.ts
+./node_modules/math-intrinsics/isNegativeZero.js
+./node_modules/math-intrinsics/tsconfig.json
+./node_modules/math-intrinsics/LICENSE
+./node_modules/math-intrinsics/README.md
+./node_modules/math-intrinsics/isInteger.d.ts
+./node_modules/math-intrinsics/min.d.ts
+./node_modules/math-intrinsics/mod.js
+./node_modules/math-intrinsics/round.js
+./node_modules/math-intrinsics/abs.js
+./node_modules/math-intrinsics/CHANGELOG.md
+./node_modules/math-intrinsics/test/index.js
+./node_modules/math-intrinsics/pow.js
+./node_modules/math-intrinsics/isNaN.d.ts
+./node_modules/math-intrinsics/.eslintrc
+./node_modules/math-intrinsics/isFinite.js
+./node_modules/math-intrinsics/mod.d.ts
+./node_modules/math-intrinsics/min.js
+./node_modules/math-intrinsics/floor.js
+./node_modules/math-intrinsics/round.d.ts
+./node_modules/math-intrinsics/isInteger.js
+./node_modules/math-intrinsics/isNaN.js
+./node_modules/math-intrinsics/max.js
+./node_modules/math-intrinsics/isFinite.d.ts
+./node_modules/math-intrinsics/constants/maxSafeInteger.js
+./node_modules/math-intrinsics/constants/maxArrayLength.d.ts
+./node_modules/math-intrinsics/constants/maxValue.d.ts
+./node_modules/math-intrinsics/constants/maxValue.js
+./node_modules/math-intrinsics/constants/maxArrayLength.js
+./node_modules/math-intrinsics/constants/maxSafeInteger.d.ts
+./node_modules/cookie/package.json
+./node_modules/cookie/index.js
+./node_modules/cookie/LICENSE
+./node_modules/cookie/README.md
+./node_modules/cookie/SECURITY.md
+./node_modules/methods/package.json
+./node_modules/methods/index.js
+./node_modules/methods/LICENSE
+./node_modules/methods/README.md
+./node_modules/methods/HISTORY.md
+./node_modules/array-flatten/package.json
+./node_modules/array-flatten/LICENSE
+./node_modules/array-flatten/README.md
+./node_modules/array-flatten/array-flatten.js
+./node_modules/dotenv/package.json
+./node_modules/dotenv/config.d.ts
+./node_modules/dotenv/LICENSE
+./node_modules/dotenv/README.md
+./node_modules/dotenv/config.js
+./node_modules/dotenv/SECURITY.md
+./node_modules/dotenv/CHANGELOG.md
+./node_modules/dotenv/README-es.md
+./node_modules/dotenv/skills/dotenv/SKILL.md
+./node_modules/dotenv/skills/dotenvx/SKILL.md
+./node_modules/dotenv/lib/cli-options.js
+./node_modules/dotenv/lib/main.js
+./node_modules/dotenv/lib/env-options.js
+./node_modules/dotenv/lib/main.d.ts
+./node_modules/call-bound/package.json
+./node_modules/call-bound/index.js
+./node_modules/call-bound/.github/FUNDING.yml
+./node_modules/call-bound/tsconfig.json
+./node_modules/call-bound/LICENSE
+./node_modules/call-bound/README.md
+./node_modules/call-bound/CHANGELOG.md
+./node_modules/call-bound/test/index.js
+./node_modules/call-bound/.eslintrc
+./node_modules/call-bound/index.d.ts
+./node_modules/call-bound/.nycrc
+./node_modules/ws/package.json
+./node_modules/ws/index.js
+./node_modules/ws/LICENSE
+./node_modules/ws/README.md
+./node_modules/ws/browser.js
+./node_modules/ws/wrapper.mjs
+./node_modules/ws/lib/websocket.js
+./node_modules/ws/lib/constants.js
+./node_modules/ws/lib/extension.js
+./node_modules/ws/lib/subprotocol.js
+./node_modules/ws/lib/websocket-server.js
+./node_modules/ws/lib/event-target.js
+./node_modules/ws/lib/limiter.js
+./node_modules/ws/lib/sender.js
+./node_modules/ws/lib/buffer-util.js
+./node_modules/ws/lib/permessage-deflate.js
+./node_modules/ws/lib/stream.js
+./node_modules/ws/lib/validation.js
+./node_modules/ws/lib/receiver.js
+./node_modules/ee-first/package.json
+./node_modules/ee-first/index.js
+./node_modules/ee-first/LICENSE
+./node_modules/ee-first/README.md
+./node_modules/ms/package.json
+./node_modules/ms/index.js
+./node_modules/ms/license.md
+./node_modules/ms/readme.md
+./node_modules/mime-db/package.json
+./node_modules/mime-db/index.js
+./node_modules/mime-db/db.json
+./node_modules/mime-db/LICENSE
+./node_modules/mime-db/README.md
+./node_modules/mime-db/HISTORY.md
+./node_modules/content-disposition/package.json
+./node_modules/content-disposition/index.js
+./node_modules/content-disposition/LICENSE
+./node_modules/content-disposition/README.md
+./node_modules/content-disposition/HISTORY.md
+./node_modules/on-finished/package.json
+./node_modules/on-finished/index.js
+./node_modules/on-finished/LICENSE
+./node_modules/on-finished/README.md
+./node_modules/on-finished/HISTORY.md
+./node_modules/.package-lock.json
+./node_modules/content-type/package.json
+./node_modules/content-type/index.js
+./node_modules/content-type/LICENSE
+./node_modules/content-type/README.md
+./node_modules/content-type/HISTORY.md
+./node_modules/http-errors/package.json
+./node_modules/http-errors/index.js
+./node_modules/http-errors/LICENSE
+./node_modules/http-errors/README.md
+./node_modules/http-errors/HISTORY.md
+./node_modules/unpipe/package.json
+./node_modules/unpipe/index.js
+./node_modules/unpipe/LICENSE
+./node_modules/unpipe/README.md
+./node_modules/unpipe/HISTORY.md
+./node_modules/vary/package.json
+./node_modules/vary/index.js
+./node_modules/vary/LICENSE
+./node_modules/vary/README.md
+./node_modules/vary/HISTORY.md
+./node_modules/call-bind-apply-helpers/package.json
+./node_modules/call-bind-apply-helpers/actualApply.d.ts
+./node_modules/call-bind-apply-helpers/index.js
+./node_modules/call-bind-apply-helpers/actualApply.js
+./node_modules/call-bind-apply-helpers/.github/FUNDING.yml
+./node_modules/call-bind-apply-helpers/tsconfig.json
+./node_modules/call-bind-apply-helpers/LICENSE
+./node_modules/call-bind-apply-helpers/README.md
+./node_modules/call-bind-apply-helpers/functionCall.js
+./node_modules/call-bind-apply-helpers/functionCall.d.ts
+./node_modules/call-bind-apply-helpers/applyBind.js
+./node_modules/call-bind-apply-helpers/applyBind.d.ts
+./node_modules/call-bind-apply-helpers/CHANGELOG.md
+./node_modules/call-bind-apply-helpers/test/index.js
+./node_modules/call-bind-apply-helpers/.eslintrc
+./node_modules/call-bind-apply-helpers/functionApply.d.ts
+./node_modules/call-bind-apply-helpers/reflectApply.d.ts
+./node_modules/call-bind-apply-helpers/index.d.ts
+./node_modules/call-bind-apply-helpers/reflectApply.js
+./node_modules/call-bind-apply-helpers/functionApply.js
+./node_modules/call-bind-apply-helpers/.nycrc
+./node_modules/range-parser/package.json
+./node_modules/range-parser/index.js
+./node_modules/range-parser/LICENSE
+./node_modules/range-parser/README.md
+./node_modules/range-parser/HISTORY.md
+./node_modules/setprototypeof/package.json
+./node_modules/setprototypeof/index.js
+./node_modules/setprototypeof/LICENSE
+./node_modules/setprototypeof/README.md
+./node_modules/setprototypeof/test/index.js
+./node_modules/setprototypeof/index.d.ts
+./node_modules/raw-body/package.json
+./node_modules/raw-body/index.js
+./node_modules/raw-body/LICENSE
+./node_modules/raw-body/README.md
+./node_modules/raw-body/index.d.ts
+./node_modules/media-typer/package.json
+./node_modules/media-typer/index.js
+./node_modules/media-typer/LICENSE
+./node_modules/media-typer/README.md
+./node_modules/media-typer/HISTORY.md
+./node_modules/get-intrinsic/package.json
+./node_modules/get-intrinsic/index.js
+./node_modules/get-intrinsic/.github/FUNDING.yml
+./node_modules/get-intrinsic/LICENSE
+./node_modules/get-intrinsic/README.md
+./node_modules/get-intrinsic/CHANGELOG.md
+./node_modules/get-intrinsic/test/GetIntrinsic.js
+./node_modules/get-intrinsic/.eslintrc
+./node_modules/get-intrinsic/.nycrc
+./node_modules/toidentifier/package.json
+./node_modules/toidentifier/index.js
+./node_modules/toidentifier/LICENSE
+./node_modules/toidentifier/README.md
+./node_modules/toidentifier/HISTORY.md
+./node_modules/cookie-signature/package.json
+./node_modules/cookie-signature/index.js
+./node_modules/cookie-signature/History.md
+./node_modules/cookie-signature/Readme.md
+./node_modules/finalhandler/package.json
+./node_modules/finalhandler/index.js
+./node_modules/finalhandler/LICENSE
+./node_modules/finalhandler/README.md
+./node_modules/finalhandler/SECURITY.md
+./node_modules/finalhandler/HISTORY.md
+./node_modules/depd/package.json
+./node_modules/depd/index.js
+./node_modules/depd/History.md
+./node_modules/depd/LICENSE
+./node_modules/depd/Readme.md
+./node_modules/depd/lib/browser/index.js
+./node_modules/forwarded/package.json
+./node_modules/forwarded/index.js
+./node_modules/forwarded/LICENSE
+./node_modules/forwarded/README.md
+./node_modules/forwarded/HISTORY.md
+./node_modules/escape-html/package.json
+./node_modules/escape-html/index.js
+./node_modules/escape-html/LICENSE
+./node_modules/escape-html/Readme.md
+./node_modules/dunder-proto/get.d.ts
+./node_modules/dunder-proto/package.json
+./node_modules/dunder-proto/set.d.ts
+./node_modules/dunder-proto/.github/FUNDING.yml
+./node_modules/dunder-proto/set.js
+./node_modules/dunder-proto/tsconfig.json
+./node_modules/dunder-proto/LICENSE
+./node_modules/dunder-proto/README.md
+./node_modules/dunder-proto/CHANGELOG.md
+./node_modules/dunder-proto/test/index.js
+./node_modules/dunder-proto/test/set.js
+./node_modules/dunder-proto/test/get.js
+./node_modules/dunder-proto/.eslintrc
+./node_modules/dunder-proto/get.js
+./node_modules/dunder-proto/.nycrc
+./node_modules/serve-static/package.json
+./node_modules/serve-static/index.js
+./node_modules/serve-static/LICENSE
+./node_modules/serve-static/README.md
+./node_modules/serve-static/HISTORY.md
+./node_modules/statuses/package.json
+./node_modules/statuses/index.js
+./node_modules/statuses/LICENSE
+./node_modules/statuses/README.md
+./node_modules/statuses/codes.json
+./node_modules/statuses/HISTORY.md
+./node_modules/type-is/package.json
+./node_modules/type-is/index.js
+./node_modules/type-is/LICENSE
+./node_modules/type-is/README.md
+./node_modules/type-is/HISTORY.md
+./node_modules/destroy/package.json
+./node_modules/destroy/index.js
+./node_modules/destroy/LICENSE
+./node_modules/destroy/README.md
+./node_modules/proxy-addr/package.json
+./node_modules/proxy-addr/index.js
+./node_modules/proxy-addr/LICENSE
+./node_modules/proxy-addr/README.md
+./node_modules/proxy-addr/HISTORY.md
+./node_modules/bytes/package.json
+./node_modules/bytes/index.js
+./node_modules/bytes/History.md
+./node_modules/bytes/LICENSE
+./node_modules/bytes/Readme.md
+./node_modules/side-channel-map/package.json
+./node_modules/side-channel-map/.editorconfig
+./node_modules/side-channel-map/index.js
+./node_modules/side-channel-map/.github/FUNDING.yml
+./node_modules/side-channel-map/tsconfig.json
+./node_modules/side-channel-map/LICENSE
+./node_modules/side-channel-map/README.md
+./node_modules/side-channel-map/CHANGELOG.md
+./node_modules/side-channel-map/test/index.js
+./node_modules/side-channel-map/.eslintrc
+./node_modules/side-channel-map/index.d.ts
+./node_modules/side-channel-map/.nycrc
+./node_modules/iconv-lite/package.json
+./node_modules/iconv-lite/LICENSE
+./node_modules/iconv-lite/README.md
+./node_modules/iconv-lite/Changelog.md
+./node_modules/iconv-lite/lib/streams.js
+./node_modules/iconv-lite/lib/index.js
+./node_modules/iconv-lite/lib/bom-handling.js
+./node_modules/iconv-lite/lib/extend-node.js
+./node_modules/iconv-lite/lib/index.d.ts
+./node_modules/iconv-lite/encodings/sbcs-data.js
+./node_modules/iconv-lite/encodings/index.js
+./node_modules/iconv-lite/encodings/utf7.js
+./node_modules/iconv-lite/encodings/sbcs-codec.js
+./node_modules/iconv-lite/encodings/utf16.js
+./node_modules/iconv-lite/encodings/tables/big5-added.json
+./node_modules/iconv-lite/encodings/tables/gb18030-ranges.json
+./node_modules/iconv-lite/encodings/tables/cp949.json
+./node_modules/iconv-lite/encodings/tables/shiftjis.json
+./node_modules/iconv-lite/encodings/tables/gbk-added.json
+./node_modules/iconv-lite/encodings/tables/cp950.json
+./node_modules/iconv-lite/encodings/tables/eucjp.json
+./node_modules/iconv-lite/encodings/tables/cp936.json
+./node_modules/iconv-lite/encodings/dbcs-data.js
+./node_modules/iconv-lite/encodings/sbcs-data-generated.js
+./node_modules/iconv-lite/encodings/dbcs-codec.js
+./node_modules/iconv-lite/encodings/internal.js
+./node_modules/send/package.json
+./node_modules/send/index.js
+./node_modules/send/LICENSE
+./node_modules/send/README.md
+./node_modules/send/SECURITY.md
+./node_modules/send/node_modules/ms/package.json
+./node_modules/send/node_modules/ms/index.js
+./node_modules/send/node_modules/ms/license.md
+./node_modules/send/node_modules/ms/readme.md
+./node_modules/send/HISTORY.md
+./node_modules/side-channel-list/package.json
+./node_modules/side-channel-list/.editorconfig
+./node_modules/side-channel-list/index.js
+./node_modules/side-channel-list/.github/FUNDING.yml
+./node_modules/side-channel-list/tsconfig.json
+./node_modules/side-channel-list/LICENSE
+./node_modules/side-channel-list/README.md
+./node_modules/side-channel-list/CHANGELOG.md
+./node_modules/side-channel-list/test/index.js
+./node_modules/side-channel-list/list.d.ts
+./node_modules/side-channel-list/.eslintrc
+./node_modules/side-channel-list/index.d.ts
+./node_modules/side-channel-list/.nycrc
+./node_modules/mime/package.json
+./node_modules/mime/.npmignore
+./node_modules/mime/mime.js
+./node_modules/mime/LICENSE
+./node_modules/mime/README.md
+./node_modules/mime/cli.js
+./node_modules/mime/CHANGELOG.md
+./node_modules/mime/types.json
+./node_modules/mime/src/build.js
+./node_modules/mime/src/test.js
+./node_modules/merge-descriptors/package.json
+./node_modules/merge-descriptors/index.js
+./node_modules/merge-descriptors/LICENSE
+./node_modules/merge-descriptors/README.md
+./node_modules/merge-descriptors/HISTORY.md
+./node_modules/hasown/package.json
+./node_modules/hasown/index.js
+./node_modules/hasown/.github/FUNDING.yml
+./node_modules/hasown/tsconfig.json
+./node_modules/hasown/LICENSE
+./node_modules/hasown/README.md
+./node_modules/hasown/CHANGELOG.md
+./node_modules/hasown/index.d.ts
+./node_modules/hasown/eslint.config.mjs
+./node_modules/hasown/.nycrc
+./node_modules/object-assign/package.json
+./node_modules/object-assign/index.js
+./node_modules/object-assign/license
+./node_modules/object-assign/readme.md
+./node_modules/encodeurl/package.json
+./node_modules/encodeurl/index.js
+./node_modules/encodeurl/LICENSE
+./node_modules/encodeurl/README.md
+./node_modules/gopd/package.json
+./node_modules/gopd/index.js
+./node_modules/gopd/.github/FUNDING.yml
+./node_modules/gopd/tsconfig.json
+./node_modules/gopd/LICENSE
+./node_modules/gopd/README.md
+./node_modules/gopd/CHANGELOG.md
+./node_modules/gopd/test/index.js
+./node_modules/gopd/gOPD.js
+./node_modules/gopd/.eslintrc
+./node_modules/gopd/index.d.ts
+./node_modules/gopd/gOPD.d.ts
+./node_modules/body-parser/package.json
+./node_modules/body-parser/index.js
+./node_modules/body-parser/LICENSE
+./node_modules/body-parser/README.md
+./node_modules/body-parser/HISTORY.md
+./node_modules/body-parser/lib/types/json.js
+./node_modules/body-parser/lib/types/urlencoded.js
+./node_modules/body-parser/lib/types/raw.js
+./node_modules/body-parser/lib/types/text.js
+./node_modules/body-parser/lib/read.js
+./node_modules/path-to-regexp/package.json
+./node_modules/path-to-regexp/index.js
+./node_modules/path-to-regexp/LICENSE
+./node_modules/path-to-regexp/Readme.md
+./node_modules/object-inspect/package.json
+./node_modules/object-inspect/index.js
+./node_modules/object-inspect/.github/FUNDING.yml
+./node_modules/object-inspect/LICENSE
+./node_modules/object-inspect/util.inspect.js
+./node_modules/object-inspect/readme.markdown
+./node_modules/object-inspect/CHANGELOG.md
+./node_modules/object-inspect/package-support.json
+./node_modules/object-inspect/test/inspect.js
+./node_modules/object-inspect/test/fakes.js
+./node_modules/object-inspect/test/indent-option.js
+./node_modules/object-inspect/test/browser/dom.js
+./node_modules/object-inspect/test/quoteStyle.js
+./node_modules/object-inspect/test/holes.js
+./node_modules/object-inspect/test/values.js
+./node_modules/object-inspect/test/deep.js
+./node_modules/object-inspect/test/fn.js
+./node_modules/object-inspect/test/number.js
+./node_modules/object-inspect/test/err.js
+./node_modules/object-inspect/test/lowbyte.js
+./node_modules/object-inspect/test/has.js
+./node_modules/object-inspect/test/undef.js
+./node_modules/object-inspect/test/global.js
+./node_modules/object-inspect/test/circular.js
+./node_modules/object-inspect/test/element.js
+./node_modules/object-inspect/test/toStringTag.js
+./node_modules/object-inspect/test/bigint.js
+./node_modules/object-inspect/.eslintrc
+./node_modules/object-inspect/test-core-js.js
+./node_modules/object-inspect/example/inspect.js
+./node_modules/object-inspect/example/fn.js
+./node_modules/object-inspect/example/circular.js
+./node_modules/object-inspect/example/all.js
+./node_modules/object-inspect/.nycrc
+./node_modules/es-define-property/package.json
+./node_modules/es-define-property/index.js
+./node_modules/es-define-property/.github/FUNDING.yml
+./node_modules/es-define-property/tsconfig.json
+./node_modules/es-define-property/LICENSE
+./node_modules/es-define-property/README.md
+./node_modules/es-define-property/CHANGELOG.md
+./node_modules/es-define-property/test/index.js
+./node_modules/es-define-property/.eslintrc
+./node_modules/es-define-property/index.d.ts
+./node_modules/es-define-property/.nycrc
+./node_modules/qs/package.json
+./node_modules/qs/.editorconfig
+./node_modules/qs/dist/qs.js
+./node_modules/qs/.github/FUNDING.yml
+./node_modules/qs/.github/SECURITY.md
+./node_modules/qs/.github/THREAT_MODEL.md
+./node_modules/qs/README.md
+./node_modules/qs/CHANGELOG.md
+./node_modules/qs/test/stringify.js
+./node_modules/qs/test/parse.js
+./node_modules/qs/test/empty-keys-cases.js
+./node_modules/qs/test/utils.js
+./node_modules/qs/LICENSE.md
+./node_modules/qs/lib/index.js
+./node_modules/qs/lib/stringify.js
+./node_modules/qs/lib/parse.js
+./node_modules/qs/lib/utils.js
+./node_modules/qs/lib/formats.js
+./node_modules/qs/eslint.config.mjs
+./node_modules/qs/.nycrc
+./node_modules/utils-merge/package.json
+./node_modules/utils-merge/.npmignore
+./node_modules/utils-merge/index.js
+./node_modules/utils-merge/LICENSE
+./node_modules/utils-merge/README.md
+./node_modules/negotiator/package.json
+./node_modules/negotiator/index.js
+./node_modules/negotiator/LICENSE
+./node_modules/negotiator/README.md
+./node_modules/negotiator/HISTORY.md
+./node_modules/negotiator/lib/language.js
+./node_modules/negotiator/lib/mediaType.js
+./node_modules/negotiator/lib/encoding.js
+./node_modules/negotiator/lib/charset.js
+./node_modules/function-bind/package.json
+./node_modules/function-bind/index.js
+./node_modules/function-bind/.github/FUNDING.yml
+./node_modules/function-bind/.github/SECURITY.md
+./node_modules/function-bind/implementation.js
+./node_modules/function-bind/LICENSE
+./node_modules/function-bind/README.md
+./node_modules/function-bind/CHANGELOG.md
+./node_modules/function-bind/test/index.js
+./node_modules/function-bind/test/.eslintrc
+./node_modules/function-bind/.eslintrc
+./node_modules/function-bind/.nycrc
+./node_modules/es-object-atoms/package.json
+./node_modules/es-object-atoms/ToObject.d.ts
+./node_modules/es-object-atoms/index.js
+./node_modules/es-object-atoms/isObject.d.ts
+./node_modules/es-object-atoms/.github/FUNDING.yml
+./node_modules/es-object-atoms/RequireObjectCoercible.d.ts
+./node_modules/es-object-atoms/tsconfig.json
+./node_modules/es-object-atoms/LICENSE
+./node_modules/es-object-atoms/README.md
+./node_modules/es-object-atoms/CHANGELOG.md
+./node_modules/es-object-atoms/test/index.js
+./node_modules/es-object-atoms/RequireObjectCoercible.js
+./node_modules/es-object-atoms/.eslintrc
+./node_modules/es-object-atoms/isObject.js
+./node_modules/es-object-atoms/index.d.ts
+./node_modules/es-object-atoms/ToObject.js
+./icecast.xml
+./reorganizar.sh
+./.gitignore
+./.git/hooks/sendemail-validate.sample
+./.git/hooks/pre-push.sample
+./.git/hooks/post-update.sample
+./.git/hooks/fsmonitor-watchman.sample
+./.git/hooks/push-to-checkout.sample
+./.git/hooks/prepare-commit-msg.sample
+./.git/hooks/pre-merge-commit.sample
+./.git/hooks/applypatch-msg.sample
+./.git/hooks/pre-commit.sample
+./.git/hooks/update.sample
+./.git/hooks/commit-msg.sample
+./.git/hooks/pre-applypatch.sample
+./.git/hooks/pre-receive.sample
+./.git/hooks/pre-rebase.sample
+./.git/ORIG_HEAD
+./.git/objects/13/dd7ef8618d2478ef74b16c019ed8e2185fae47
+./.git/objects/13/6c771b285b756bac1a924371044963b2a38c55
+./.git/objects/e1/507b14985a6a74feaadd2df94d90bb038dbecb
+./.git/objects/8e/4f98503f08e38b1603bb8b5fb785041d693b08
+./.git/objects/3d/6ce9a8142a8026b72244dd558a2f12f780ab17
+./.git/objects/7b/df55f6f62a5fe73df2957436d1af102fdfde66
+./.git/objects/bb/d79be048ca46b3cd849285dcfc31f1fc53e01a
+./.git/objects/50/99b8deb940c41592c8c24a3a28b8d4308e9f21
+./.git/objects/20/1226ef658815fe4d0118c73a41763cb673de7a
+./.git/objects/cd/4f97c7c8d041ce2b7f333478f06d8e2aa57eb5
+./.git/objects/cd/6406332dd9e5b36d7bf4f7bfde00de5920981b
+./.git/objects/d2/aa25f9872478f23ecd5547024fab8bd4df851d
+./.git/objects/d2/02af420b5d7a7216d035463c5f89c66bbdf7e4
+./.git/objects/80/db0e5bbf8cb6a83aa5e3d2f0c44db2cc0b7dce
+./.git/objects/cc/e7a1a684a6824fb2a9a23c194342cd11ca241f
+./.git/objects/16/4bd9f12779367d6b3bc2d24d8474bfe3f8f169
+./.git/objects/16/2a991a121272024608a339da8432ddc7f90c1d
+./.git/objects/6a/2eb46bf0dd6108dfaea887f2a35786f7021f7e
+./.git/objects/21/eea666c09205b7b0295c285e4a93c4befd8fc6
+./.git/objects/8c/a6c835ab26c0ed0511d079e4c4a8665c1ffd46
+./.git/objects/f5/ff1b0f83746e32c423d1ade971bce750534ce0
+./.git/objects/e9/44b38fd646f8eb6afc9f188f29bcb301a96ca6
+./.git/objects/9c/53d61af4f918e0411915950718b368cf867678
+./.git/objects/9c/11a05bfa2df733e89eea0855f008c5714b11a6
+./.git/objects/ac/6c88b958ed36a898bd3c5d8fb8a118e8da6330
+./.git/objects/df/d7f0d9121e282766cc2069fa45b3ebe5dfe1b4
+./.git/objects/bf/51b9a83d9b6c1e846e046c18a2746caba983c9
+./.git/objects/0c/242a17da7f28b90701d6991e8ff142fe3705c5
+./.git/objects/03/109ed45995e5eb8a3490fc470a4434bd6581ac
+./.git/objects/d7/b84ae8550e79cc2392fc6cfa4852f1891d8519
+./.git/objects/e3/14fdfa2e6f14bf57d4ea1f824a39b31543e3b7
+./.git/objects/e3/50e7632b54314ae7dfa27f540db81d1eb07a59
+./.git/objects/33/cabe54857279f326544770b37b6b6e774d8d5d
+./.git/objects/e0/a814cf6e88eb13765c920deb223305f9ef3f05
+./.git/objects/e8/febd1f6764bf1fd45f3e0cf650f3986f7fdf18
+./.git/objects/e8/1b585f88f7b8bc040c95a7ebbb965c672994a7
+./.git/objects/e8/2a07162842629755cd49df064f52626bed7286
+./.git/objects/12/5c36f92eded7c12c31287b7db118d90c92206a
+./.git/objects/ad/c2e23c4d70d0c551997511c2a2530f6c639360
+./.git/objects/22/c2a84ca78e4c8278241019e407328e8f57ae2c
+./.git/objects/2e/75c42e3741157af9ffec0f9dffdce68e75405a
+./.git/objects/69/14da887edc8082a5c01ff2e7afe17a5c380af0
+./.git/objects/e6/9de29bb2d1d6434b8b29ae775ad8c2e48c5391
+./.git/objects/b5/67ff41e1beb785705ef9bc457fc75252c28324
+./.git/objects/39/70f0c7bf584ad1ae94cb36ea9774feddbae647
+./.git/objects/f4/73bf2fff068a218e12ae78b3cf6a0a2b3e14d6
+./.git/objects/1a/c2da12133fbe57ae12bf93c3b52ddc6c151473
+./.git/objects/a4/a8a80612457cc9be12ee737495c695881e715d
+./.git/objects/a4/7edcc844960b04ab1ca4570ab082a0a7f3994b
+./.git/objects/0f/f4aa3aed4d1a495798cdb3582ab1c10cedde18
+./.git/objects/6b/0c5a9d8d88a33adcf1a33d1cda61e5ac9c3b9a
+./.git/objects/36/26db0e986de8b983d78556eb1fc240aa9c3299
+./.git/objects/74/7781acd3beac5eba09cc27e4cf54f416a747cf
+./.git/objects/d4/5b1e1d596769c4c184c3cbf530706a011e06eb
+./.git/objects/1d/9f3d0ebe94f27702de5681cad12cbbf5070dcf
+./.git/objects/4f/4744047c01855bf936455fb98b3a2a86086e0b
+./.git/objects/c6/b20aedf5fc438ada45e921ac3587d4ab8cc6f3
+./.git/objects/ec/f7b846371900363fb8bcaa1345d83b9c7e5ccd
+./.git/objects/26/d7a029e22703d611a03312bd2f8887e17abd14
+./.git/objects/5a/4379b629f7da8c9756b1f37f458c110dd33da1
+./.git/objects/5a/db12f30f29a8c6c6145b5d390d296e9ef598fa
+./.git/objects/5a/694617cc745f6c9dab276506e075f10fb5c54a
+./.git/objects/5a/b997794f763a41deac44524376503bcd1e0a54
+./.git/objects/71/19330ba61d2280b435821f0a5392c0dee96adc
+./.git/objects/76/506977ba4253e4b351b6c2929f8cf9d0fcd538
+./.git/objects/77/6315628c16f07598566f5d33c9aadd2ab4bc85
+./.git/objects/7a/04b8b9b18177377cba8cd60a298635fbfb012d
+./.git/objects/7a/8066d1fc866d2999bbc08d3a0e4066cea05d56
+./.git/objects/4d/8959312f257eb3867b75f1632ccefac5f3b267
+./.git/objects/8b/bc12e81532644d1864d1642dd0851b36dd07c4
+./.git/objects/68/38f5c4ed203d67c0d217838fe2d60e9a07cc14
+./.git/objects/fc/d718794a8f17f8861fa55423c4d8b4479ce48c
+./.git/objects/fc/5a3fb330327006cd71bccec7df34a794deddd8
+./.git/objects/4b/8a31d4a9b5b82ca1743f65c5d205407614a0c5
+./.git/objects/4b/3d91a83edbba7fbd19b6a57370f58b070d214b
+./.git/objects/9e/c0d06d9d6c696e13cadc2f2641abc3b29a634b
+./.git/objects/1b/8cb4c63a0eba6b5f8f34d6f641caaf8a25ac68
+./.git/objects/1b/c016559a6e1ff812fb24deebee671827cc7a95
+./.git/objects/25/6128c574ef3de2df32ec6ee4e6fe4322f2024f
+./.git/objects/93/2b9eae9d2349c41bf330d28be02c3b57b5989b
+./.git/objects/66/c1824d08aa1e5bfa3a283f03b103a6dba0639e
+./.git/objects/7f/a5638d8d2105702c74bedf4f826ae27212c9e8
+./.git/objects/c2/1ba995e2035a99e03a4659e14e2d7f48a69d80
+./.git/objects/0e/27d6f31385db88b9bffd52dffc788e1471ab42
+./.git/objects/61/29c0aa52c29b0dc3538c88004055e6b676dc1a
+./.git/objects/27/edc21a3802019e692c9c69bffa467f9444596b
+./.git/objects/24/81d6a815bf2b6da4823c271c055fe36f88f1d2
+./.git/objects/91/b814c7bbab19582039c821d670202eeb766e71
+./.git/objects/dd/16f9a24e47acdefa9059f03b5e1924c49756d7
+./.git/objects/3f/7bb9c5073c148eb2974c9a98384cbe6c3fef50
+./.git/objects/e5/9042a92e88ed68c5df4aa4b63642345206571e
+./.git/objects/01/4e4699880347742ea3401bf6ce3275d66984bf
+./.git/objects/ba/64b79fb4800901864e2a8cd5b9b5929afb049c
+./.git/objects/5f/0b3c6f2cc877d3b58451ef29d90cec911580b8
+./.git/objects/5f/4924950eac9f69c3591f5e35367636a0d7b01b
+./.git/objects/86/0f321f559938245076f8e87f6b5ecb6316601e
+./.git/objects/86/5fb9822aff55cce605658ffce4d42db5c841ac
+./.git/objects/b3/3980c78dfc1dda0c7c411c9feb64b37c0990d7
+./.git/objects/b3/4e9cc89c84a53fbdc39d3d6cdc7caea5494ba0
+./.git/objects/19/d7e4993407f4053282b41edb5cf302ed8d958f
+./.git/objects/3e/744bdcf2d99fec1ee6597d850976e0a68551a2
+./.git/objects/95/3206c03ff9f342b2cb35405471fa9a9933a8a7
+./.git/objects/95/f281b74652725766b3fb3e1832419ccc06f850
+./.git/objects/e4/0dd603b58ab2c34ef4625f3d816a46845abe98
+./.git/objects/e4/ddb5088efc1561b39fc00a84e1f21ccdf3ce47
+./.git/objects/e4/438f9563b73fc93f1485296b6e61c8dae68577
+./.git/objects/92/d0125929bea9b751877a84d9eaf72814dd0cba
+./.git/objects/28/041546c354bfc254038b287e3cee5843248afb
+./.git/objects/28/9f8f9e99396a3471c9eca520df75c4f90f41ac
+./.git/objects/1f/259188237befe3b9c5b5405ba892a4b42fa9ee
+./.git/objects/78/60f0cf06f41a0cb8af2570f7431d55ea4d906d
+./.git/objects/94/3d432f17affa568f9909b78e90dc7e9304fc14
+./.git/objects/0d/f28408c6419ab9e062a7ad9036f455836dd0f7
+./.git/objects/89/92d41f5a0514af0076b7a7e841e2fecb335e1b
+./.git/objects/57/bbd6fda065bcb48c6f7d11c272c5ce2196703e
+./.git/objects/57/36e0f3ff0051b28b3f28a31db93951f48d74e2
+./.git/objects/57/a095fb38b5daf9fc320c2466affc087e4385bf
+./.git/objects/49/cf149f0519c1d200c87bfa48445a33497454eb
+./.git/objects/5e/f74898fa13e882f09afdc71624e53bd520d490
+./.git/objects/af/5bda88a407973f6efa18871b90dbfc56c6f0b4
+./.git/objects/54/490ae899b577a44ee31173b60bca9bd199d34f
+./.git/objects/54/a4561efbba1d1b1c8b54d9bee1878017bc22fc
+./.git/objects/52/f0bcf1753a22743145f098fc63e0954199cfcd
+./.git/HEAD
+./.git/description
+./.git/gk/config
+./.git/FETCH_HEAD
+./.git/logs/HEAD
+./.git/logs/refs/remotes/origin/main
+./.git/logs/refs/heads/main
+./.git/index
+./.git/COMMIT_EDITMSG
+./.git/refs/remotes/origin/main
+./.git/refs/heads/main
+./.git/info/exclude
+./.git/config
+
+===== MÚSICAS =====
+total 136M
+-rwxr----- 1 carlos-camargo carlos-camargo 2,9M jun 10 18:12 7 Espadas Ogum.mp3
+-rwxr----- 1 carlos-camargo carlos-camargo 4,5M jun  5 18:17 Altar E Tronqueira.mp3
+-rwxr----- 1 carlos-camargo carlos-camargo 6,6M jun 11 13:00 a vida e assim mesmo como ela e.mp3
+-rwxr----- 1 carlos-camargo carlos-camargo 4,3M jun 18 14:11 Batismo.mp3
+-rwxr----- 1 carlos-camargo carlos-camargo 5,8M jun 10 18:26 Benzimento da Lua.mp3
+-rwxr----- 1 carlos-camargo carlos-camargo 6,0M jun 18 14:21 Caboclo Pedra Preta.mp3
+-rwxr----- 1 carlos-camargo carlos-camargo 4,2M jun 18 14:45 ciganos.mp3
+-rwxr----- 1 carlos-camargo carlos-camargo 4,0M jun  5 09:04 Exu é lei.mp3
+-rwxr----- 1 carlos-camargo carlos-camargo 3,5M jun 11 15:01 jangadeiro.mp3
+-rwxr----- 1 carlos-camargo carlos-camargo 6,9M jun 10 18:26 João Batista .mp3
+-rwxr----- 1 carlos-camargo carlos-camargo 5,6M jun 10 18:37 Jurema .mp3
+-rwxr----- 1 carlos-camargo carlos-camargo 4,1M jun 18 14:08 Luz de Oxalá.mp3
+-rwxr----- 1 carlos-camargo carlos-camargo  11M jun 18 14:51 marinheiros .mp3
+-rwxr----- 1 carlos-camargo carlos-camargo 6,2M jun 10 18:27 odociaba.mp3
+-rwxr----- 1 carlos-camargo carlos-camargo  11M jun 18 14:30 Ogum Beira Mar.mp3
+-rwxr----- 1 carlos-camargo carlos-camargo 5,2M jun 10 18:26 ogum .mp3
+-rwxr----- 1 carlos-camargo carlos-camargo 8,4M jun 10 18:37 Oxossi é oke aro.mp3
+-rwxr----- 1 carlos-camargo carlos-camargo 4,7M jun  5 12:47 Passo da Malandragem.mp3
+-rwxr----- 1 carlos-camargo carlos-camargo 6,1M jun 10 18:37 preto velho .mp3
+-rwxr----- 1 carlos-camargo carlos-camargo 6,2M jun 10 18:26 quatro da manhã.mp3
+-rwxr----- 1 carlos-camargo carlos-camargo 9,2M jun 18 14:41 Rosa Caveira.mp3
+-rwxr----- 1 carlos-camargo carlos-camargo 1,4M jun 16 14:12 santo Antônio.mp3
+-rwxr----- 1 carlos-camargo carlos-camargo 4,7M jun 18 14:08 Saudação às Sete Linhas.mp3
+-rw-rw-r-- 1 carlos-camargo carlos-camargo    8 jun 16 16:39 umbanda.m3u
+-rwxr----- 1 carlos-camargo carlos-camargo 4,3M jun 18 14:15 Xangô é corisco.mp3
+
+===== API PLAYLIST =====
+[{"file":"7 Espadas Ogum.mp3","title":"7 Espadas Ogum","artist":"Ponto de Umbanda"},{"file":"a vida e assim mesmo como ela e.mp3","title":"a vida e assim mesmo como ela e","artist":"Ponto de Umbanda"},{"file":"Altar E Tronqueira.mp3","title":"Altar E Tronqueira","artist":"Ponto de Umbanda"},{"file":"Batismo.mp3","title":"Batismo","artist":"Ponto de Umbanda"},{"file":"Benzimento da Lua.mp3","title":"Benzimento da Lua","artist":"Ponto de Umbanda"},{"file":"Caboclo Pedra Preta.mp3","title":"Caboclo Pedra Preta","artist":"Ponto de Umbanda"},{"file":"ciganos.mp3","title":"ciganos","artist":"Ponto de Umbanda"},{"file":"Exu é lei.mp3","title":"Exu é lei","artist":"Ponto de Umbanda"},{"file":"jangadeiro.mp3","title":"jangadeiro","artist":"Ponto de Umbanda"},{"file":"João Batista .mp3","title":"João Batista ","artist":"Ponto de Umbanda"},{"file":"Jurema .mp3","title":"Jurema ","artist":"Ponto de Umbanda"},{"file":"Luz de Oxalá.mp3","title":"Luz de Oxalá","artist":"Ponto de Umbanda"},{"file":"marinheiros .mp3","title":"marinheiros ","artist":"Ponto de Umbanda"},{"file":"odociaba.mp3","title":"odociaba","artist":"Ponto de Umbanda"},{"file":"ogum .mp3","title":"ogum ","artist":"Ponto de Umbanda"},{"file":"Ogum Beira Mar.mp3","title":"Ogum Beira Mar","artist":"Ponto de Umbanda"},{"file":"Oxossi é oke aro.mp3","title":"Oxossi é oke aro","artist":"Ponto de Umbanda"},{"file":"Passo da Malandragem.mp3","title":"Passo da Malandragem","artist":"Ponto de Umbanda"},{"file":"preto velho .mp3","title":"preto velho ","artist":"Ponto de Umbanda"},{"file":"quatro da manhã.mp3","title":"quatro da manhã","artist":"Ponto de Umbanda"},{"file":"Rosa Caveira.mp3","title":"Rosa Caveira","artist":"Ponto de Umbanda"},{"file":"santo Antônio.mp3","title":"santo Antônio","artist":"Ponto de Umbanda"},{"file":"Saudação às Sete Linhas.mp3","title":"Saudação às Sete Linhas","artist":"Ponto de Umbanda"},{"file":"Xangô é corisco.mp3","title":"Xangô é corisco","artist":"Ponto de Umbanda"}]
+
+===== API HEALTH =====
+{"status":"ok","uptime":1044.560866024,"wsClients":1,"currentTrack":{"file":"7 Espadas Ogum.mp3","title":"7 Espadas Ogum","artist":"Ponto de Umbanda"}}
+
+===== BACKEND =====
+const express = require('express');
+const http = require('http');
+const WebSocket = require('ws');
+const cors = require('cors');
+const path = require('path');
+const fs = require('fs');
+require('dotenv').config();
+
+const app = express();
+const server = http.createServer(app);
+const wss = new WebSocket.Server({ server });
+
+// ================= CONFIG =================
+const PORT = process.env.PORT || 10000;
+const NODE_ENV = process.env.NODE_ENV || 'development';
+
+// 🔥 CORREÇÃO PRINCIPAL (Render / produção)
+const ROOT_DIR = path.resolve(__dirname, '..');
+const FRONTEND_DIR = path.join(ROOT_DIR, 'frontend');
+const AUDIO_DIR = path.join(ROOT_DIR, 'audio');
+// ================= MIDDLEWARE =================
+app.use(cors({
+  origin: NODE_ENV === 'production'
+    ? ['https://radioamigosdoseuze.com.br']
+    : '*',
+  credentials: true
+}));
+
+app.use(express.json());
+
+// ================= LOG SYSTEM =================
+const LOG_DIR = path.join(__dirname, '../logs');
+
+if (!fs.existsSync(LOG_DIR)) {
+  fs.mkdirSync(LOG_DIR, { recursive: true });
+}
+
+function log(level, message) {
+  const line = `[${new Date().toISOString()}] [${level.toUpperCase()}] ${message}\n`;
+  console.log(line.trim());
+  fs.appendFileSync(path.join(LOG_DIR, 'server.log'), line);
+}
+
+// ================= STATIC FILES =================
+app.use(express.static(FRONTEND_DIR));
+if (fs.existsSync(AUDIO_DIR)) {
+  app.use('/audio', express.static(AUDIO_DIR));
+} else {
+  console.error(`Pasta de áudio não encontrada: ${AUDIO_DIR}`);
+}
+
+// ================= PLAYLIST =================
+// ================= PLAYLIST AUTOMÁTICA =================
+let PLAYLIST = [];
+
+if (fs.existsSync(AUDIO_DIR)) {
+  PLAYLIST = fs.readdirSync(AUDIO_DIR)
+    .filter(file => file.toLowerCase().endsWith('.mp3'))
+    .sort((a, b) => a.localeCompare(b, 'pt-BR'))
+    .map(file => ({
+      file,
+      title: path.parse(file).name,
+      artist: 'Ponto de Umbanda'
+    }));
+
+  console.log(`✓ ${PLAYLIST.length} músicas carregadas.`);
+} else {
+  console.error(`Pasta de áudio não encontrada: ${AUDIO_DIR}`);
+}
+
+// ================= STATE =================
+let state = {
+  listeners: 0,
+  peakListeners: 0,
+  currentTrack: PLAYLIST[0] || {
+    file: '',
+    title: 'Nenhuma música',
+    artist: 'Ponto de Umbanda'
+  },
+  playlist: PLAYLIST,
+  history: [],
+  uptime: 0,
+  isLive: true,
+  lastUpdate: Date.now()
+};
+
+// ================= HISTORY =================
+function addToHistory(track) {
+  state.history.unshift({
+    ...track,
+    playedAt: Date.now()
+  });
+
+  if (state.history.length > 30) {
+    state.history.pop();
+  }
+}
+
+// ================= WEBSOCKET =================
+const clients = new Set();
+
+function broadcast(data) {
+  const msg = JSON.stringify(data);
+
+  clients.forEach(ws => {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(msg);
+    }
+  });
+}
+
+wss.on('connection', (ws) => {
+  clients.add(ws);
+  state.listeners = clients.size;
+
+  log('info', `Cliente conectado. Total: ${state.listeners}`);
+
+  ws.send(JSON.stringify({ type: 'state', data: state }));
+  ws.send(JSON.stringify({ type: 'playlist', data: state.playlist }));
+
+  ws.on('message', (message) => {
+    try {
+      const data = JSON.parse(message);
+
+      if (data.type === 'ping') {
+        ws.send(JSON.stringify({ type: 'pong', time: Date.now() }));
+      }
+
+      if (data.type === 'update_metadata') {
+        state.currentTrack = {
+          title: data.title || 'Desconhecido',
+          artist: data.artist || 'Ponto de Umbanda',
+          file: data.file || state.currentTrack.file
+        };
+
+        state.lastUpdate = Date.now();
+
+        addToHistory(state.currentTrack);
+
+        broadcast({ type: 'metadata', data: state.currentTrack });
+      }
+
+    } catch (err) {
+      log('error', `WS error: ${err.message}`);
+    }
+  });
+
+  ws.on('close', () => {
+    clients.delete(ws);
+    state.listeners = clients.size;
+    log('info', `Cliente desconectado. Total: ${state.listeners}`);
+  });
+});
+
+// ================= API ROUTES =================
+app.get('/api/status', (req, res) => {
+  res.json(state);
+});
+
+app.get('/api/playlist', (req, res) => {
+  res.json(state.playlist);
+});
+
+app.get('/api/history', (req, res) => {
+  res.json(state.history.slice(0, 30));
+});
+
+// ================= STREAM REAL (CORRIGIDO) =================
+app.get('/stream', (req, res) => {
+
+  if (!state.currentTrack.file) {
+    return res.status(404).json({
+      error: 'Nenhuma música disponível'
+    });
+  }
+
+  const filePath = path.join(AUDIO_DIR, state.currentTrack.file);
+
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).json({
+      error: 'Arquivo não encontrado',
+      file: state.currentTrack.file
+    });
+  }
+
+  res.setHeader('Content-Type', 'audio/mpeg');
+  res.setHeader('Accept-Ranges', 'bytes');
+
+  const stream = fs.createReadStream(filePath);
+
+  stream.on('error', (err) => {
+    console.error(err);
+    if (!res.headersSent) {
+      res.status(500).end('Erro ao abrir o áudio');
+    }
+  });
+
+  stream.pipe(res);
+});
+
+// ================= STREAM INFO =================
+app.get('/api/stream', (req, res) => {
+  const fileUrl = `${req.protocol}://${req.get('host')}/stream`;
+
+  res.json({
+    stream: fileUrl,
+    title: state.currentTrack.title,
+    artist: state.currentTrack.artist
+  });
+});
+
+// ================= HEALTH CHECK =================
+app.get('/api/health', (req, res) => {
+  res.json({
+    status: 'ok',
+    uptime: process.uptime(),
+    wsClients: clients.size,
+    currentTrack: state.currentTrack
+  });
+});
+
+// ================= LOOP =================
+setInterval(() => {
+  state.uptime = process.uptime();
+  state.listeners = clients.size;
+
+  broadcast({ type: 'state', data: state });
+}, 10000);
+
+// ================= PING WS (ANTI DROP RENDER) =================
+setInterval(() => {
+  clients.forEach(ws => {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.ping();
+    }
+  });
+}, 25000);
+
+// ================= START =================
+console.log('ROOT_DIR:', ROOT_DIR);
+console.log('FRONTEND_DIR:', FRONTEND_DIR);
+console.log('AUDIO_DIR:', AUDIO_DIR);
+console.log('Quantidade de músicas:', PLAYLIST.length);
+
+server.listen(PORT, '0.0.0.0', () => {
+  log('info', `Servidor rodando na porta ${PORT}`);
+});
+
+module.exports = { app, server, wss };
+===== FRONTEND =====
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rádio Amigos do Seu Zé</title>
+    <link rel="manifest" href="manifest.json">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎵</text></svg>">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            min-height: 100vh;
+            color: #fff;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        /* Header */
+        .header {
+            text-align: center;
+            padding: 30px 20px 20px;
+        }
+
+        .logo {
+            display: inline-flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 15px;
+        }
+
+        .logo-icon {
+            width: 50px;
+            height: 50px;
+            background: linear-gradient(135deg, #e94560, #ff6b6b);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 28px;
+            box-shadow: 0 4px 15px rgba(233, 69, 96, 0.4);
+        }
+
+        .logo h1 {
+            font-size: 28px;
+            font-weight: 700;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            background: linear-gradient(90deg, #fff, #e94560);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        /* Status Badge */
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 20px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 600;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            transition: all 0.3s ease;
+        }
+
+        .status-badge.online {
+            background: rgba(0, 255, 136, 0.15);
+            color: #00ff88;
+            border: 1px solid rgba(0, 255, 136, 0.3);
+        }
+
+        .status-badge.offline {
+            background: rgba(255, 71, 87, 0.15);
+            color: #ff4757;
+            border: 1px solid rgba(255, 71, 87, 0.3);
+        }
+
+        .status-badge.connecting {
+            background: rgba(255, 193, 7, 0.15);
+            color: #ffc107;
+            border: 1px solid rgba(255, 193, 7, 0.3);
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: currentColor;
+        }
+
+        /* Player Card */
+        .player-card {
+            width: 90%;
+            max-width: 400px;
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 24px;
+            padding: 30px;
+            margin: 20px auto;
+            text-align: center;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        }
+
+        /* Album Art */
+        .album-art {
+            width: 180px;
+            height: 180px;
+            margin: 0 auto 25px;
+            border-radius: 20px;
+            overflow: hidden;
+            position: relative;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+        }
+
+        .album-art img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .album-art-overlay {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            padding: 15px;
+            background: linear-gradient(transparent, rgba(0,0,0,0.8));
+            font-size: 11px;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            color: rgba(255,255,255,0.7);
+        }
+
+        /* Visualizer */
+        .visualizer {
+            display: flex;
+            align-items: flex-end;
+            justify-content: center;
+            gap: 3px;
+            height: 30px;
+            margin-bottom: 20px;
+        }
+
+        .bar {
+            width: 4px;
+            background: linear-gradient(to top, #e94560, #ff6b6b);
+            border-radius: 2px;
+            transition: height 0.2s ease;
+        }
+
+        .bar.active {
+            animation: dance 0.5s ease infinite alternate;
+        }
+
+        @keyframes dance {
+            0% { height: 5px; }
+            100% { height: 25px; }
+        }
+
+        /* Track Info */
+        .track-info {
+            margin-bottom: 20px;
+        }
+
+        .track-label {
+            font-size: 11px;
+            letter-spacing: 3px;
+            text-transform: uppercase;
+            color: rgba(255,255,255,0.5);
+            margin-bottom: 8px;
+        }
+
+        .track-title {
+            font-size: 20px;
+            font-weight: 700;
+            margin-bottom: 5px;
+            color: #fff;
+            min-height: 28px;
+        }
+
+        .track-artist {
+            font-size: 14px;
+            color: rgba(255,255,255,0.6);
+        }
+
+        /* Progress Bar */
+        .progress-container {
+            margin-bottom: 25px;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 4px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 2px;
+            overflow: hidden;
+            cursor: pointer;
+        }
+
+        .progress-fill {
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(90deg, #e94560, #ff6b6b);
+            border-radius: 2px;
+            transition: width 0.3s ease;
+        }
+
+        .progress-time {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 8px;
+            font-size: 12px;
+            color: rgba(255,255,255,0.4);
+        }
+
+        /* Controls */
+        .controls {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .control-btn {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            border: none;
+            background: rgba(255,255,255,0.1);
+            color: #fff;
+            font-size: 20px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s ease;
+        }
+
+        .control-btn:hover {
+            background: rgba(255,255,255,0.2);
+            transform: scale(1.1);
+        }
+
+        .control-btn.play-btn {
+            width: 70px;
+            height: 70px;
+            background: linear-gradient(135deg, #e94560, #ff6b6b);
+            font-size: 28px;
+            box-shadow: 0 5px 20px rgba(233, 69, 96, 0.4);
+        }
+
+        .control-btn.play-btn:hover {
+            transform: scale(1.15);
+            box-shadow: 0 8px 30px rgba(233, 69, 96, 0.6);
+        }
+
+        .control-btn:disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+        }
+
+        /* Volume */
+        .volume-container {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            justify-content: center;
+            margin-bottom: 20px;
+        }
+
+        .volume-slider {
+            width: 120px;
+            height: 4px;
+            -webkit-appearance: none;
+            appearance: none;
+            background: rgba(255,255,255,0.1);
+            border-radius: 2px;
+            outline: none;
+        }
+
+        .volume-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background: #e94560;
+            cursor: pointer;
+        }
+
+        /* Playlist */
+        .playlist-section {
+            width: 90%;
+            max-width: 400px;
+            margin: 0 auto 40px;
+        }
+
+        .playlist-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 15px;
+            padding: 0 10px;
+        }
+
+        .playlist-title {
+            font-size: 14px;
+            font-weight: 600;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .playlist-count {
+            font-size: 12px;
+            color: rgba(255,255,255,0.5);
+        }
+
+        .playlist {
+            background: rgba(255,255,255,0.03);
+            border: 1px solid rgba(255,255,255,0.05);
+            border-radius: 16px;
+            overflow: hidden;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .playlist::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .playlist::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .playlist::-webkit-scrollbar-thumb {
+            background: rgba(255,255,255,0.1);
+            border-radius: 3px;
+        }
+
+        .playlist-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 15px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            border-bottom: 1px solid rgba(255,255,255,0.03);
+        }
+
+        .playlist-item:hover {
+            background: rgba(255,255,255,0.05);
+        }
+
+        .playlist-item.active {
+            background: rgba(233, 69, 96, 0.1);
+            border-left: 3px solid #e94560;
+        }
+
+        .playlist-item-number {
+            font-size: 12px;
+            color: rgba(255,255,255,0.3);
+            width: 25px;
+            text-align: center;
+        }
+
+        .playlist-item-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .playlist-item-title {
+            font-size: 13px;
+            font-weight: 500;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .playlist-item-duration {
+            font-size: 12px;
+            color: rgba(255,255,255,0.4);
+        }
+
+        /* Error Message */
+        .error-message {
+            background: rgba(255, 71, 87, 0.1);
+            border: 1px solid rgba(255, 71, 87, 0.3);
+            color: #ff4757;
+            padding: 12px 20px;
+            border-radius: 12px;
+            font-size: 13px;
+            text-align: center;
+            margin-bottom: 20px;
+            display: none;
+        }
+
+        .error-message.show {
+            display: block;
+        }
+
+        /* Loading */
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 2px solid rgba(255,255,255,0.1);
+            border-top-color: #e94560;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Responsive */
+        @media (max-width: 480px) {
+            .logo h1 {
+                font-size: 22px;
+            }
+            
+            .player-card {
+                padding: 20px;
+            }
+            
+            .album-art {
+                width: 150px;
+                height: 150px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <div class="header">
+        <div class="logo">
+            <div class="logo-icon">🎧</div>
+            <h1>Amigos do Seu Zé</h1>
+        </div>
+        <div class="status-badge connecting" id="statusBadge">
+            <span class="status-dot"></span>
+            <span id="statusText">Conectando...</span>
+        </div>
+    </div>
+
+    <!-- Error Message -->
+    <div class="error-message" id="errorMessage"></div>
+
+    <!-- Player Card -->
+    <div class="player-card">
+        <!-- Album Art -->
+        <div class="album-art">
+            <img src="https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=400&h=400&fit=crop" 
+                 alt="Album Art" 
+                 id="albumArt"
+                 onerror="this.src='https://via.placeholder.com/400x400/1a1a2e/e94560?text=🎵'">
+            <div class="album-art-overlay">Ponto de Umbanda</div>
+        </div>
+
+        <!-- Visualizer -->
+        <div class="visualizer" id="visualizer">
+            <div class="bar" style="height: 5px;"></div>
+            <div class="bar" style="height: 8px;"></div>
+            <div class="bar" style="height: 12px;"></div>
+            <div class="bar" style="height: 6px;"></div>
+            <div class="bar" style="height: 15px;"></div>
+            <div class="bar" style="height: 10px;"></div>
+            <div class="bar" style="height: 7px;"></div>
+            <div class="bar" style="height: 14px;"></div>
+            <div class="bar" style="height: 9px;"></div>
+            <div class="bar" style="height: 11px;"></div>
+        </div>
+
+        <!-- Track Info -->
+        <div class="track-info">
+            <div class="track-label">Tocando Agora</div>
+            <div class="track-title" id="trackTitle">Conectando ao stream...</div>
+            <div class="track-artist" id="trackArtist">Aguardando transmissão</div>
+        </div>
+
+        <!-- Progress -->
+        <div class="progress-container">
+            <div class="progress-bar" id="progressBar">
+                <div class="progress-fill" id="progressFill"></div>
+            </div>
+            <div class="progress-time">
+                <span id="currentTime">0:00</span>
+                <span id="totalTime">AO VIVO</span>
+            </div>
+        </div>
+
+        <!-- Controls -->
+        <div class="controls">
+            <button class="control-btn" id="prevBtn" title="Anterior">⏮</button>
+            <button class="control-btn" id="stopBtn" title="Parar">⏹</button>
+            <button class="control-btn play-btn" id="playBtn" title="Play/Pause">▶</button>
+            <button class="control-btn" id="muteBtn" title="Mudo">🔊</button>
+            <button class="control-btn" id="nextBtn" title="Próxima">⏭</button>
+        </div>
+
+        <!-- Volume -->
+        <div class="volume-container">
+            <span>🔈</span>
+            <input type="range" class="volume-slider" id="volumeSlider" min="0" max="100" value="80">
+            <span>🔊</span>
+        </div>
+    </div>
+
+    <!-- Playlist -->
+    <div class="playlist-section">
+        <div class="playlist-header">
+            <div class="playlist-title">🎵 Playlist</div>
+            <div class="playlist-count" id="playlistCount">0 músicas</div>
+        </div>
+        <div class="playlist" id="playlist">
+            <div style="text-align: center; padding: 30px; color: rgba(255,255,255,0.3);">
+                <div class="loading"></div>
+                <p style="margin-top: 10px; font-size: 13px;">Carregando playlist...</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Audio Element -->
+    <audio id="audioPlayer" preload="none"></audio>
+
+    <script>
+        /**
+         * Rádio Amigos do Seu Zé - Player
+         * Reprodução direta de arquivos MP3 via API
+         */
+        
+        const RadioPlayer = {
+            audio: document.getElementById('audioPlayer'),
+            playBtn: document.getElementById('playBtn'),
+            stopBtn: document.getElementById('stopBtn'),
+            prevBtn: document.getElementById('prevBtn'),
+            nextBtn: document.getElementById('nextBtn'),
+            muteBtn: document.getElementById('muteBtn'),
+            volumeSlider: document.getElementById('volumeSlider'),
+            trackTitle: document.getElementById('trackTitle'),
+            trackArtist: document.getElementById('trackArtist'),
+            progressBar: document.getElementById('progressBar'),
+            progressFill: document.getElementById('progressFill'),
+            currentTime: document.getElementById('currentTime'),
+            statusBadge: document.getElementById('statusBadge'),
+            statusText: document.getElementById('statusText'),
+            playlist: document.getElementById('playlist'),
+            playlistCount: document.getElementById('playlistCount'),
+            errorMessage: document.getElementById('errorMessage'),
+            visualizer: document.getElementById('visualizer'),
+            
+            tracks: [],
+            currentTrackIndex: 0,
+            isPlaying: false,
+            isMuted: false,
+            previousVolume: 80,
+            
+            // Detectar URL base (localhost ou produção)
+            getBaseUrl() {
+                return window.location.origin;
+            },
+            
+            init() {
+                this.bindEvents();
+                this.loadPlaylist();
+                this.setupAudioEvents();
+                this.startVisualizer();
+            },
+            
+            bindEvents() {
+                this.playBtn.addEventListener('click', () => this.togglePlay());
+                this.stopBtn.addEventListener('click', () => this.stop());
+                this.prevBtn.addEventListener('click', () => this.previousTrack());
+                this.nextBtn.addEventListener('click', () => this.nextTrack());
+                this.muteBtn.addEventListener('click', () => this.toggleMute());
+                this.volumeSlider.addEventListener('input', (e) => this.setVolume(e.target.value));
+                
+                this.progressBar.addEventListener('click', (e) => {
+                    const rect = this.progressBar.getBoundingClientRect();
+                    const percent = (e.clientX - rect.left) / rect.width;
+                    this.seek(percent);
+                });
+            },
+            
+            setupAudioEvents() {
+                this.audio.addEventListener('play', () => {
+                    this.isPlaying = true;
+                    this.updatePlayButton();
+                    this.setStatus('online', 'AO VIVO');
+                    this.startVisualizer();
+                });
+                
+                this.audio.addEventListener('pause', () => {
+                    this.isPlaying = false;
+                    this.updatePlayButton();
+                    this.stopVisualizer();
+                });
+                
+                this.audio.addEventListener('ended', () => {
+                    this.nextTrack();
+                });
+                
+                this.audio.addEventListener('error', (e) => {
+                    console.error('Erro no áudio:', e);
+                    this.showError('Erro ao carregar áudio. Verifique sua conexão.');
+                    this.setStatus('offline', 'Servidor Offline');
+                });
+                
+                this.audio.addEventListener('timeupdate', () => {
+                    this.updateProgress();
+                });
+                
+                this.audio.addEventListener('waiting', () => {
+                    this.setStatus('connecting', 'Buffering...');
+                });
+                
+                this.audio.addEventListener('canplay', () => {
+                    this.setStatus('online', 'AO VIVO');
+                    this.hideError();
+                });
+            },
+            
+            async loadPlaylist() {
+                try {
+                    const baseUrl = this.getBaseUrl();
+                    const response = await fetch(`${baseUrl}/api/playlist`);
+                    
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}`);
+                    }
+                    
+                    const data = await response.json();
+                    
+                    if (data.success && data.tracks && data.tracks.length > 0) {
+                        this.tracks = data.tracks;
+                        this.renderPlaylist();
+                        this.playlistCount.textContent = `${data.total} música${data.total !== 1 ? 's' : ''}`;
+                        this.hideError();
+                        
+                        // Carregar primeira música
+                        this.loadTrack(0);
+                        this.setStatus('online', 'Pronto para tocar');
+                    } else {
+                        throw new Error('Nenhuma música encontrada');
+                    }
+                } catch (err) {
+                    console.error('Erro ao carregar playlist:', err);
+                    this.showError('Não foi possível carregar a playlist. Verifique se há músicas na pasta /audio.');
+                    this.setStatus('offline', 'Servidor Offline');
+                    
+                    // Mostrar playlist vazia
+                    this.playlist.innerHTML = `
+                        <div style="text-align: center; padding: 30px; color: rgba(255,255,255,0.3);">
+                            <p>📂 Nenhuma música disponível</p>
+                            <p style="font-size: 12px; margin-top: 5px;">Adicione arquivos MP3 na pasta /audio</p>
+                        </div>
+                    `;
+                }
+            },
+            
+            renderPlaylist() {
+                this.playlist.innerHTML = '';
+                
+                this.tracks.forEach((track, index) => {
+                    const item = document.createElement('div');
+                    item.className = `playlist-item ${index === this.currentTrackIndex ? 'active' : ''}`;
+                    item.innerHTML = `
+                        <div class="playlist-item-number">${index + 1}</div>
+                        <div class="playlist-item-info">
+                            <div class="playlist-item-title">${this.escapeHtml(track.name)}</div>
+                        </div>
+                        <div class="playlist-item-duration">▶</div>
+                    `;
+                    item.addEventListener('click', () => this.playTrack(index));
+                    this.playlist.appendChild(item);
+                });
+            },
+            
+            loadTrack(index) {
+                if (this.tracks.length === 0) return;
+                
+                this.currentTrackIndex = index;
+                const track = this.tracks[index];
+                const baseUrl = this.getBaseUrl();
+                
+                // Atualizar UI
+                this.trackTitle.textContent = track.name;
+                this.trackArtist.textContent = 'Rádio Amigos do Seu Zé';
+                this.updatePlaylistActive();
+                
+                // Carregar áudio
+                this.audio.src = `${baseUrl}${track.url}`;
+                this.audio.load();
+            },
+            
+            playTrack(index) {
+                this.loadTrack(index);
+                this.play();
+            },
+            
+            togglePlay() {
+                if (this.isPlaying) {
+                    this.pause();
+                } else {
+                    this.play();
+                }
+            },
+            
+            play() {
+                if (this.tracks.length === 0) {
+                    this.showError('Nenhuma música na playlist');
+                    return;
+                }
+                
+                const playPromise = this.audio.play();
+                
+                if (playPromise !== undefined) {
+                    playPromise.catch(err => {
+                        console.error('Erro ao reproduzir:', err);
+                        this.showError('Erro ao iniciar reprodução. Clique em Play novamente.');
+                        this.setStatus('offline', 'Erro de reprodução');
+                    });
+                }
+            },
+            
+            pause() {
+                this.audio.pause();
+            },
+            
+            stop() {
+                this.audio.pause();
+                this.audio.currentTime = 0;
+                this.isPlaying = false;
+                this.updatePlayButton();
+                this.stopVisualizer();
+                this.setStatus('online', 'Parado');
+            },
+            
+            previousTrack() {
+                if (this.tracks.length === 0) return;
+                const newIndex = (this.currentTrackIndex - 1 + this.tracks.length) % this.tracks.length;
+                this.playTrack(newIndex);
+            },
+            
+            nextTrack() {
+                if (this.tracks.length === 0) return;
+                const newIndex = (this.currentTrackIndex + 1) % this.tracks.length;
+                this.playTrack(newIndex);
+            },
+            
+            toggleMute() {
+                if (this.isMuted) {
+                    this.audio.muted = false;
+                    this.isMuted = false;
+                    this.volumeSlider.value = this.previousVolume;
+                    this.muteBtn.textContent = '🔊';
+                } else {
+                    this.previousVolume = this.volumeSlider.value;
+                    this.audio.muted = true;
+                    this.isMuted = true;
+                    this.volumeSlider.value = 0;
+                    this.muteBtn.textContent = '🔇';
+                }
+            },
+            
+            setVolume(value) {
+                const volume = parseInt(value) / 100;
+                this.audio.volume = volume;
+                
+                if (volume === 0) {
+                    this.muteBtn.textContent = '🔇';
+                    this.isMuted = true;
+                } else {
+                    this.muteBtn.textContent = '🔊';
+                    this.isMuted = false;
+                    this.audio.muted = false;
+                }
+            },
+            
+            seek(percent) {
+                if (this.audio.duration) {
+                    this.audio.currentTime = percent * this.audio.duration;
+                }
+            },
+            
+            updateProgress() {
+                if (this.audio.duration) {
+                    const percent = (this.audio.currentTime / this.audio.duration) * 100;
+                    this.progressFill.style.width = `${percent}%`;
+                    this.currentTime.textContent = this.formatTime(this.audio.currentTime);
+                }
+            },
+            
+            updatePlayButton() {
+                this.playBtn.textContent = this.isPlaying ? '⏸' : '▶';
+            },
+            
+            updatePlaylistActive() {
+                const items = this.playlist.querySelectorAll('.playlist-item');
+                items.forEach((item, index) => {
+                    item.classList.toggle('active', index === this.currentTrackIndex);
+                });
+            },
+            
+            setStatus(type, text) {
+                this.statusBadge.className = `status-badge ${type}`;
+                this.statusText.textContent = text;
+            },
+            
+            showError(message) {
+                this.errorMessage.textContent = message;
+                this.errorMessage.classList.add('show');
+                setTimeout(() => this.hideError(), 8000);
+            },
+            
+            hideError() {
+                this.errorMessage.classList.remove('show');
+            },
+            
+            formatTime(seconds) {
+                if (isNaN(seconds)) return '0:00';
+                const mins = Math.floor(seconds / 60);
+                const secs = Math.floor(seconds % 60);
+                return `${mins}:${secs.toString().padStart(2, '0')}`;
+            },
+            
+            escapeHtml(text) {
+                const div = document.createElement('div');
+                div.textContent = text;
+                return div.innerHTML;
+            },
+            
+            // Visualizer Animation
+            startVisualizer() {
+                const bars = this.visualizer.querySelectorAll('.bar');
+                bars.forEach((bar, i) => {
+                    bar.classList.add('active');
+                    bar.style.animationDelay = `${i * 0.1}s`;
+                    bar.style.animationDuration = `${0.3 + Math.random() * 0.4}s`;
+                });
+            },
+            
+            stopVisualizer() {
+                const bars = this.visualizer.querySelectorAll('.bar');
+                bars.forEach(bar => {
+                    bar.classList.remove('active');
+                    bar.style.height = '5px';
+                });
+            }
+        };
+        
+        // Inicializar quando DOM estiver pronto
+        document.addEventListener('DOMContentLoaded', () => {
+            RadioPlayer.init();
+        });
+        
+        // Registrar Service Worker para PWA
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('sw.js').catch(err => {
+                console.log('SW registration failed:', err);
+            });
+        }
+    </script>
+</body>
+</html>
+

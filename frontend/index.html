@@ -161,7 +161,8 @@
             width: 4px;
             background: linear-gradient(to top, #e94560, #ff6b6b);
             border-radius: 2px;
-            transition: height 0.2s ease;
+            transition: height 0.1s ease;
+            height: 5px;
         }
 
         .bar.active {
@@ -437,17 +438,18 @@
             .logo h1 {
                 font-size: 22px;
             }
-            
+
             .player-card {
                 padding: 20px;
             }
-            
+
             .album-art {
                 width: 150px;
                 height: 150px;
             }
         }
     </style>
+<base target="_blank">
 </head>
 <body>
     <!-- Header -->
@@ -540,14 +542,14 @@
     </div>
 
     <!-- Audio Element -->
-    <audio id="audioPlayer" preload="none"></audio>
+    <audio id="audioPlayer" preload="metadata"></audio>
 
     <script>
         /**
-         * Rádio Amigos do Seu Zé - Player
-         * Reprodução direta de arquivos MP3 via API
+         * Rádio Amigos do Seu Zé - Player Corrigido
+         * Compatível com backend Express + API /api/playlist
          */
-        
+
         const RadioPlayer = {
             audio: document.getElementById('audioPlayer'),
             playBtn: document.getElementById('playBtn'),
@@ -567,25 +569,65 @@
             playlistCount: document.getElementById('playlistCount'),
             errorMessage: document.getElementById('errorMessage'),
             visualizer: document.getElementById('visualizer'),
-            
+
             tracks: [],
             currentTrackIndex: 0,
             isPlaying: false,
             isMuted: false,
             previousVolume: 80,
-            
-            // Detectar URL base (localhost ou produção)
+            visualizerInterval: null,
+            ws: null,
+
+            // URL base da API (mesma origem)
             getBaseUrl() {
                 return window.location.origin;
             },
-            
+
             init() {
                 this.bindEvents();
-                this.loadPlaylist();
                 this.setupAudioEvents();
-                this.startVisualizer();
+                this.loadPlaylist();
+                this.connectWebSocket();
             },
-            
+
+            // Conectar WebSocket para updates em tempo real
+            connectWebSocket() {
+                const wsUrl = window.location.origin.replace(/^http/, 'ws');
+                try {
+                    this.ws = new WebSocket(wsUrl);
+
+                    this.ws.onopen = () => {
+                        console.log('WebSocket conectado');
+                    };
+
+                    this.ws.onmessage = (event) => {
+                        try {
+                            const data = JSON.parse(event.data);
+                            if (data.type === 'metadata' && data.data) {
+                                this.trackTitle.textContent = data.data.title || 'Desconhecido';
+                                this.trackArtist.textContent = data.data.artist || 'Ponto de Umbanda';
+                            }
+                            if (data.type === 'state' && data.data) {
+                                this.setStatus('online', `AO VIVO · ${data.data.listeners || 0} ouvintes`);
+                            }
+                        } catch (e) {
+                            console.log('WS message error:', e);
+                        }
+                    };
+
+                    this.ws.onerror = (err) => {
+                        console.log('WebSocket erro:', err);
+                    };
+
+                    this.ws.onclose = () => {
+                        // Reconectar em 5 segundos
+                        setTimeout(() => this.connectWebSocket(), 5000);
+                    };
+                } catch (e) {
+                    console.log('WebSocket não disponível');
+                }
+            },
+
             bindEvents() {
                 this.playBtn.addEventListener('click', () => this.togglePlay());
                 this.stopBtn.addEventListener('click', () => this.stop());
@@ -593,70 +635,138 @@
                 this.nextBtn.addEventListener('click', () => this.nextTrack());
                 this.muteBtn.addEventListener('click', () => this.toggleMute());
                 this.volumeSlider.addEventListener('input', (e) => this.setVolume(e.target.value));
-                
+
                 this.progressBar.addEventListener('click', (e) => {
                     const rect = this.progressBar.getBoundingClientRect();
                     const percent = (e.clientX - rect.left) / rect.width;
                     this.seek(percent);
                 });
             },
-            
+
             setupAudioEvents() {
+                // Quando o áudio começa a tocar
                 this.audio.addEventListener('play', () => {
                     this.isPlaying = true;
                     this.updatePlayButton();
-                    this.setStatus('online', 'AO VIVO');
+                    this.setStatus('online', 'Tocando');
                     this.startVisualizer();
                 });
-                
+
+                // Quando o áudio pausa
                 this.audio.addEventListener('pause', () => {
                     this.isPlaying = false;
                     this.updatePlayButton();
                     this.stopVisualizer();
                 });
-                
+
+                // Quando a música termina, vai para a próxima
                 this.audio.addEventListener('ended', () => {
                     this.nextTrack();
                 });
-                
+
+                // Erro no carregamento do áudio
                 this.audio.addEventListener('error', (e) => {
                     console.error('Erro no áudio:', e);
-                    this.showError('Erro ao carregar áudio. Verifique sua conexão.');
-                    this.setStatus('offline', 'Servidor Offline');
+                    const error = this.audio.error;
+                    let msg = 'Erro ao carregar áudio.';
+                    if (error) {
+                        switch(error.code) {
+                            case 1: msg = 'Reprodução abortada.'; break;
+                            case 2: msg = 'Erro de rede. Verifique sua conexão.'; break;
+                            case 3: msg = 'Erro de decodificação. Formato não suportado.'; break;
+                            case 4: msg = 'Áudio não encontrado no servidor.'; break;
+                        }
+                    }
+                    this.showError(msg);
+                    this.setStatus('offline', 'Erro');
+                    this.stopVisualizer();
                 });
-                
+
+                // Atualiza progresso em tempo real
                 this.audio.addEventListener('timeupdate', () => {
                     this.updateProgress();
                 });
-                
+
+                // Carregando/buffering
                 this.audio.addEventListener('waiting', () => {
-                    this.setStatus('connecting', 'Buffering...');
+                    this.setStatus('connecting', 'Carregando...');
                 });
-                
+
+                // Pronto para tocar
                 this.audio.addEventListener('canplay', () => {
-                    this.setStatus('online', 'AO VIVO');
+                    if (this.isPlaying) {
+                        this.setStatus('online', 'Tocando');
+                    } else {
+                        this.setStatus('online', 'Pronto');
+                    }
                     this.hideError();
                 });
+
+                // Metadados carregados (duração disponível)
+                this.audio.addEventListener('loadedmetadata', () => {
+                    this.updateProgress();
+                });
+
+                // Carregando dados
+                this.audio.addEventListener('loadstart', () => {
+                    this.setStatus('connecting', 'Carregando...');
+                });
+
+                // Dados suficientes para começar
+                this.audio.addEventListener('canplaythrough', () => {
+                    this.setStatus('online', 'Tocando');
+                });
+
+                // Progresso do buffer
+                this.audio.addEventListener('progress', () => {
+                    if (this.audio.buffered.length > 0) {
+                        const buffered = this.audio.buffered.end(this.audio.buffered.length - 1);
+                        const duration = this.audio.duration;
+                        if (duration && isFinite(duration)) {
+                            const percent = (buffered / duration) * 100;
+                            // Poderia mostrar barra de buffer aqui
+                        }
+                    }
+                });
             },
-            
+
             async loadPlaylist() {
                 try {
                     const baseUrl = this.getBaseUrl();
                     const response = await fetch(`${baseUrl}/api/playlist`);
-                    
+
                     if (!response.ok) {
                         throw new Error(`HTTP ${response.status}`);
                     }
-                    
+
                     const data = await response.json();
-                    
-                    if (data.success && data.tracks && data.tracks.length > 0) {
-                        this.tracks = data.tracks;
+
+                    // A API retorna array direto: [{file, title, artist}, ...]
+                    if (Array.isArray(data) && data.length > 0) {
+                        this.tracks = data.map(track => ({
+                            name: track.title || track.file,
+                            file: track.file,
+                            artist: track.artist || 'Ponto de Umbanda'
+                        }));
+
                         this.renderPlaylist();
-                        this.playlistCount.textContent = `${data.total} música${data.total !== 1 ? 's' : ''}`;
+                        this.playlistCount.textContent = `${this.tracks.length} música${this.tracks.length !== 1 ? 's' : ''}`;
                         this.hideError();
-                        
-                        // Carregar primeira música
+
+                        // Carregar primeira música (sem dar play automático)
+                        this.loadTrack(0);
+                        this.setStatus('online', 'Pronto para tocar');
+                    } else if (data.success && Array.isArray(data.tracks) && data.tracks.length > 0) {
+                        // Fallback para formato alternativo
+                        this.tracks = data.tracks.map(track => ({
+                            name: track.title || track.file,
+                            file: track.file,
+                            artist: track.artist || 'Ponto de Umbanda'
+                        }));
+
+                        this.renderPlaylist();
+                        this.playlistCount.textContent = `${this.tracks.length} música${this.tracks.length !== 1 ? 's' : ''}`;
+                        this.hideError();
                         this.loadTrack(0);
                         this.setStatus('online', 'Pronto para tocar');
                     } else {
@@ -666,20 +776,21 @@
                     console.error('Erro ao carregar playlist:', err);
                     this.showError('Não foi possível carregar a playlist. Verifique se há músicas na pasta /audio.');
                     this.setStatus('offline', 'Servidor Offline');
-                    
-                    // Mostrar playlist vazia
+
+                    // Mostrar estado vazio
                     this.playlist.innerHTML = `
                         <div style="text-align: center; padding: 30px; color: rgba(255,255,255,0.3);">
                             <p>📂 Nenhuma música disponível</p>
                             <p style="font-size: 12px; margin-top: 5px;">Adicione arquivos MP3 na pasta /audio</p>
                         </div>
                     `;
+                    this.playlistCount.textContent = '0 músicas';
                 }
             },
-            
+
             renderPlaylist() {
                 this.playlist.innerHTML = '';
-                
+
                 this.tracks.forEach((track, index) => {
                     const item = document.createElement('div');
                     item.className = `playlist-item ${index === this.currentTrackIndex ? 'active' : ''}`;
@@ -694,29 +805,38 @@
                     this.playlist.appendChild(item);
                 });
             },
-            
+
             loadTrack(index) {
                 if (this.tracks.length === 0) return;
-                
+
                 this.currentTrackIndex = index;
                 const track = this.tracks[index];
                 const baseUrl = this.getBaseUrl();
-                
+
                 // Atualizar UI
                 this.trackTitle.textContent = track.name;
-                this.trackArtist.textContent = 'Rádio Amigos do Seu Zé';
+                this.trackArtist.textContent = track.artist || 'Rádio Amigos do Seu Zé';
                 this.updatePlaylistActive();
-                
-                // Carregar áudio
-                this.audio.src = `${baseUrl}${track.url}`;
-                this.audio.load();
+
+                // CORREÇÃO PRINCIPAL: Montar URL correta do áudio
+                // O backend serve arquivos em /audio/nome-do-arquivo.mp3
+                const audioUrl = `${baseUrl}/audio/${encodeURIComponent(track.file)}`;
+
+                // Só atualiza src se for diferente (evita recarregar a mesma música)
+                if (this.audio.src !== audioUrl) {
+                    this.audio.src = audioUrl;
+                    this.audio.load();
+                }
             },
-            
+
             playTrack(index) {
                 this.loadTrack(index);
-                this.play();
+                // Pequeno delay para garantir que o src foi atualizado antes do play
+                setTimeout(() => {
+                    this.play();
+                }, 50);
             },
-            
+
             togglePlay() {
                 if (this.isPlaying) {
                     this.pause();
@@ -724,28 +844,42 @@
                     this.play();
                 }
             },
-            
+
             play() {
                 if (this.tracks.length === 0) {
                     this.showError('Nenhuma música na playlist');
                     return;
                 }
-                
+
+                // Se não tiver src definido, carrega a música atual
+                if (!this.audio.src || this.audio.src === window.location.href) {
+                    this.loadTrack(this.currentTrackIndex);
+                }
+
                 const playPromise = this.audio.play();
-                
+
                 if (playPromise !== undefined) {
-                    playPromise.catch(err => {
-                        console.error('Erro ao reproduzir:', err);
-                        this.showError('Erro ao iniciar reprodução. Clique em Play novamente.');
-                        this.setStatus('offline', 'Erro de reprodução');
-                    });
+                    playPromise
+                        .then(() => {
+                            this.isPlaying = true;
+                            this.updatePlayButton();
+                            this.startVisualizer();
+                        })
+                        .catch(err => {
+                            console.error('Erro ao reproduzir:', err);
+                            this.showError('Erro ao iniciar reprodução. Tente novamente.');
+                            this.setStatus('offline', 'Erro de reprodução');
+                        });
                 }
             },
-            
+
             pause() {
                 this.audio.pause();
+                this.isPlaying = false;
+                this.updatePlayButton();
+                this.stopVisualizer();
             },
-            
+
             stop() {
                 this.audio.pause();
                 this.audio.currentTime = 0;
@@ -753,25 +887,28 @@
                 this.updatePlayButton();
                 this.stopVisualizer();
                 this.setStatus('online', 'Parado');
+                this.progressFill.style.width = '0%';
+                this.currentTime.textContent = '0:00';
             },
-            
+
             previousTrack() {
                 if (this.tracks.length === 0) return;
                 const newIndex = (this.currentTrackIndex - 1 + this.tracks.length) % this.tracks.length;
                 this.playTrack(newIndex);
             },
-            
+
             nextTrack() {
                 if (this.tracks.length === 0) return;
                 const newIndex = (this.currentTrackIndex + 1) % this.tracks.length;
                 this.playTrack(newIndex);
             },
-            
+
             toggleMute() {
                 if (this.isMuted) {
                     this.audio.muted = false;
                     this.isMuted = false;
-                    this.volumeSlider.value = this.previousVolume;
+                    this.volumeSlider.value = this.previousVolume || 80;
+                    this.setVolume(this.volumeSlider.value);
                     this.muteBtn.textContent = '🔊';
                 } else {
                     this.previousVolume = this.volumeSlider.value;
@@ -781,11 +918,11 @@
                     this.muteBtn.textContent = '🔇';
                 }
             },
-            
+
             setVolume(value) {
                 const volume = parseInt(value) / 100;
                 this.audio.volume = volume;
-                
+
                 if (volume === 0) {
                     this.muteBtn.textContent = '🔇';
                     this.isMuted = true;
@@ -795,84 +932,94 @@
                     this.audio.muted = false;
                 }
             },
-            
+
             seek(percent) {
-                if (this.audio.duration) {
+                if (this.audio.duration && isFinite(this.audio.duration)) {
                     this.audio.currentTime = percent * this.audio.duration;
                 }
             },
-            
+
             updateProgress() {
-                if (this.audio.duration) {
+                if (this.audio.duration && isFinite(this.audio.duration)) {
                     const percent = (this.audio.currentTime / this.audio.duration) * 100;
                     this.progressFill.style.width = `${percent}%`;
                     this.currentTime.textContent = this.formatTime(this.audio.currentTime);
+                } else {
+                    // Para streams ou quando duração não está disponível
+                    this.progressFill.style.width = '0%';
+                    this.currentTime.textContent = this.formatTime(this.audio.currentTime);
                 }
             },
-            
+
             updatePlayButton() {
                 this.playBtn.textContent = this.isPlaying ? '⏸' : '▶';
             },
-            
+
             updatePlaylistActive() {
                 const items = this.playlist.querySelectorAll('.playlist-item');
                 items.forEach((item, index) => {
                     item.classList.toggle('active', index === this.currentTrackIndex);
                 });
             },
-            
+
             setStatus(type, text) {
                 this.statusBadge.className = `status-badge ${type}`;
                 this.statusText.textContent = text;
             },
-            
+
             showError(message) {
                 this.errorMessage.textContent = message;
                 this.errorMessage.classList.add('show');
                 setTimeout(() => this.hideError(), 8000);
             },
-            
+
             hideError() {
                 this.errorMessage.classList.remove('show');
             },
-            
+
             formatTime(seconds) {
-                if (isNaN(seconds)) return '0:00';
+                if (isNaN(seconds) || !isFinite(seconds)) return '0:00';
                 const mins = Math.floor(seconds / 60);
                 const secs = Math.floor(seconds % 60);
                 return `${mins}:${secs.toString().padStart(2, '0')}`;
             },
-            
+
             escapeHtml(text) {
                 const div = document.createElement('div');
                 div.textContent = text;
                 return div.innerHTML;
             },
-            
-            // Visualizer Animation
+
+            // Visualizador com animação via JavaScript (mais confiável que CSS puro)
             startVisualizer() {
+                this.stopVisualizer(); // Limpa anterior
                 const bars = this.visualizer.querySelectorAll('.bar');
-                bars.forEach((bar, i) => {
-                    bar.classList.add('active');
-                    bar.style.animationDelay = `${i * 0.1}s`;
-                    bar.style.animationDuration = `${0.3 + Math.random() * 0.4}s`;
-                });
+
+                this.visualizerInterval = setInterval(() => {
+                    bars.forEach((bar) => {
+                        const height = 5 + Math.random() * 20;
+                        bar.style.height = `${height}px`;
+                    });
+                }, 150);
             },
-            
+
             stopVisualizer() {
+                if (this.visualizerInterval) {
+                    clearInterval(this.visualizerInterval);
+                    this.visualizerInterval = null;
+                }
                 const bars = this.visualizer.querySelectorAll('.bar');
                 bars.forEach(bar => {
-                    bar.classList.remove('active');
                     bar.style.height = '5px';
                 });
             }
         };
-        
+
         // Inicializar quando DOM estiver pronto
         document.addEventListener('DOMContentLoaded', () => {
             RadioPlayer.init();
         });
-        
+
         // Registrar Service Worker para PWA
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('sw.js').catch(err => {
