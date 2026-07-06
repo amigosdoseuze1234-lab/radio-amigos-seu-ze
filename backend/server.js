@@ -14,7 +14,6 @@ const wss = new WebSocket.Server({ server });
 const PORT = process.env.PORT || 10000;
 const NODE_ENV = process.env.NODE_ENV || 'development';
 
-// 🔥 CORREÇÃO PRINCIPAL (Render / produção)
 const ROOT_DIR = path.resolve(__dirname, '..');
 const FRONTEND_DIR = path.join(ROOT_DIR, 'frontend');
 const AUDIO_DIR = path.join(ROOT_DIR, 'audio');
@@ -31,7 +30,6 @@ app.use(express.json());
 
 // ================= LOG SYSTEM =================
 const LOG_DIR = path.join(__dirname, '../logs');
-
 if (!fs.existsSync(LOG_DIR)) {
   fs.mkdirSync(LOG_DIR, { recursive: true });
 }
@@ -50,8 +48,10 @@ if (fs.existsSync(AUDIO_DIR)) {
   console.error(`Pasta de áudio não encontrada: ${AUDIO_DIR}`);
 }
 
-// ================= PLAYLIST AUTOMÁTICA =================
+// ================= PLAYLIST =================
 let PLAYLIST = [];
+let currentTrackIndex = 0;
+let streamInterval = null;
 
 if (fs.existsSync(AUDIO_DIR)) {
   PLAYLIST = fs.readdirSync(AUDIO_DIR)
@@ -63,15 +63,57 @@ if (fs.existsSync(AUDIO_DIR)) {
       artist: 'Ponto de Umbanda'
     }));
 
-  console.log(`✓ ${PLAYLIST.length} músicas carregadas.`);
+  console.log(`✓ ${PLAYLIST.length} músicas carregadas para streaming.`);
 } else {
   console.error(`Pasta de áudio não encontrada: ${AUDIO_DIR}`);
 }
 
-// ================= CHAT HISTORY =================
+// ================= STREAMING EM TEMPO REAL =================
+// Sistema de streaming contínuo - o servidor controla a música
+let streamState = {
+  isPlaying: false,
+  currentTrack: PLAYLIST[0] || { file: '', title: 'Nenhuma música', artist: 'Ponto de Umbanda' },
+  startTime: Date.now(),
+  trackDuration: 0
+};
+
+function getCurrentTrackForStream() {
+  if (PLAYLIST.length === 0) return null;
+  return PLAYLIST[currentTrackIndex];
+}
+
+function nextTrack() {
+  if (PLAYLIST.length === 0) return;
+  currentTrackIndex = (currentTrackIndex + 1) % PLAYLIST.length;
+  streamState.currentTrack = PLAYLIST[currentTrackIndex];
+  streamState.startTime = Date.now();
+
+  // Notificar todos os clientes sobre a nova música
+  broadcast({
+    type: 'metadata',
+    data: streamState.currentTrack
+  });
+
+  log('info', `Nova música: ${streamState.currentTrack.title}`);
+}
+
+// Avança música automaticamente (simulação - em produção use broadcaster.js)
+function startAutoDJ() {
+  if (PLAYLIST.length === 0) return;
+
+  // A cada 3 minutos, troca de música (simulação)
+  // Em produção, o broadcaster.js controla isso
+  streamInterval = setInterval(() => {
+    nextTrack();
+  }, 180000); // 3 minutos
+
+  log('info', 'AutoDJ iniciado - streaming em tempo real');
+}
+
+// ================= CHAT =================
 const MAX_CHAT_HISTORY = 100;
 let chatHistory = [];
-let chatUsers = new Map(); // ws -> { name, joinedAt }
+let chatUsers = new Map();
 
 function addChatMessage(name, message) {
   const msg = {
@@ -104,11 +146,7 @@ function getOnlineCount() {
 let state = {
   listeners: 0,
   peakListeners: 0,
-  currentTrack: PLAYLIST[0] || {
-    file: '',
-    title: 'Nenhuma música',
-    artist: 'Ponto de Umbanda'
-  },
+  currentTrack: streamState.currentTrack,
   playlist: PLAYLIST,
   history: [],
   uptime: 0,
@@ -116,16 +154,9 @@ let state = {
   lastUpdate: Date.now()
 };
 
-// ================= HISTORY =================
 function addToHistory(track) {
-  state.history.unshift({
-    ...track,
-    playedAt: Date.now()
-  });
-
-  if (state.history.length > 30) {
-    state.history.pop();
-  }
+  state.history.unshift({ ...track, playedAt: Date.now() });
+  if (state.history.length > 30) state.history.pop();
 }
 
 // ================= WEBSOCKET =================
@@ -133,7 +164,6 @@ const clients = new Set();
 
 function broadcast(data) {
   const msg = JSON.stringify(data);
-
   clients.forEach(ws => {
     if (ws.readyState === WebSocket.OPEN) {
       ws.send(msg);
@@ -147,22 +177,21 @@ wss.on('connection', (ws) => {
 
   log('info', `Cliente conectado. Total: ${state.listeners}`);
 
+  // Enviar estado atual
   ws.send(JSON.stringify({ type: 'state', data: state }));
   ws.send(JSON.stringify({ type: 'playlist', data: state.playlist }));
+  ws.send(JSON.stringify({ type: 'metadata', data: streamState.currentTrack }));
 
-  // Enviar histórico do chat para novo usuário
+  // Enviar histórico do chat
   if (chatHistory.length > 0) {
     ws.send(JSON.stringify({
       type: 'chat_history',
-      data: chatHistory.slice(-20)
+      data: chatHistory.slice(-30)
     }));
   }
 
-  // Notificar todos sobre novo ouvinte online
-  broadcastChat({
-    type: 'online_count',
-    count: getOnlineCount()
-  });
+  // Notificar online count
+  broadcastChat({ type: 'online_count', count: getOnlineCount() });
 
   ws.on('message', (message) => {
     try {
@@ -178,23 +207,17 @@ wss.on('connection', (ws) => {
           artist: data.artist || 'Ponto de Umbanda',
           file: data.file || state.currentTrack.file
         };
-
         state.lastUpdate = Date.now();
-
         addToHistory(state.currentTrack);
-
         broadcast({ type: 'metadata', data: state.currentTrack });
       }
 
-      // ===== CHAT AO VIVO =====
+      // ===== CHAT =====
       if (data.type === 'chat' && data.name && data.message) {
         const name = String(data.name).trim().substring(0, 20);
         const msgText = String(data.message).trim().substring(0, 200);
-
         if (name && msgText) {
-          // Registrar usuário
           chatUsers.set(ws, { name, joinedAt: Date.now() });
-
           const chatMsg = addChatMessage(name, msgText);
           broadcastChat(chatMsg);
           log('info', `Chat: ${name}: ${msgText.substring(0, 50)}`);
@@ -205,14 +228,8 @@ wss.on('connection', (ws) => {
         const name = String(data.name).trim().substring(0, 20);
         if (name) {
           chatUsers.set(ws, { name, joinedAt: Date.now() });
-          broadcastChat({
-            type: 'system',
-            message: `👋 ${name} entrou no chat`
-          });
-          broadcastChat({
-            type: 'online_count',
-            count: getOnlineCount()
-          });
+          broadcastChat({ type: 'system', message: `👋 ${name} entrou no chat` });
+          broadcastChat({ type: 'online_count', count: getOnlineCount() });
         }
       }
 
@@ -228,16 +245,9 @@ wss.on('connection', (ws) => {
     state.listeners = clients.size;
 
     if (userInfo) {
-      broadcastChat({
-        type: 'system',
-        message: `👋 ${userInfo.name} saiu do chat`
-      });
+      broadcastChat({ type: 'system', message: `👋 ${userInfo.name} saiu do chat` });
     }
-
-    broadcastChat({
-      type: 'online_count',
-      count: getOnlineCount()
-    });
+    broadcastChat({ type: 'online_count', count: getOnlineCount() });
 
     log('info', `Cliente desconectado. Total: ${state.listeners}`);
   });
@@ -256,33 +266,32 @@ app.get('/api/history', (req, res) => {
   res.json(state.history.slice(0, 30));
 });
 
-// ================= STREAM REAL (CORRIGIDO) =================
+// ================= STREAM (TEMPO REAL) =================
+// Endpoint /stream serve a música atual do AutoDJ
 app.get('/stream', (req, res) => {
+  const track = getCurrentTrackForStream();
 
-  if (!state.currentTrack.file) {
-    return res.status(404).json({
-      error: 'Nenhuma música disponível'
-    });
+  if (!track || !track.file) {
+    return res.status(404).json({ error: 'Nenhuma música disponível' });
   }
 
-  const filePath = path.join(AUDIO_DIR, state.currentTrack.file);
+  const filePath = path.join(AUDIO_DIR, track.file);
 
   if (!fs.existsSync(filePath)) {
-    return res.status(404).json({
-      error: 'Arquivo não encontrado',
-      file: state.currentTrack.file
-    });
+    return res.status(404).json({ error: 'Arquivo não encontrado', file: track.file });
   }
 
   res.setHeader('Content-Type', 'audio/mpeg');
   res.setHeader('Accept-Ranges', 'bytes');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
 
   const stream = fs.createReadStream(filePath);
 
   stream.on('error', (err) => {
-    console.error(err);
+    console.error('Stream error:', err);
     if (!res.headersSent) {
-      res.status(500).end('Erro ao abrir o áudio');
+      res.status(500).end('Erro no stream');
     }
   });
 
@@ -292,11 +301,10 @@ app.get('/stream', (req, res) => {
 // ================= STREAM INFO =================
 app.get('/api/stream', (req, res) => {
   const fileUrl = `${req.protocol}://${req.get('host')}/stream`;
-
   res.json({
     stream: fileUrl,
-    title: state.currentTrack.title,
-    artist: state.currentTrack.artist
+    title: streamState.currentTrack.title,
+    artist: streamState.currentTrack.artist
   });
 });
 
@@ -306,19 +314,19 @@ app.get('/api/health', (req, res) => {
     status: 'ok',
     uptime: process.uptime(),
     wsClients: clients.size,
-    currentTrack: state.currentTrack
+    currentTrack: streamState.currentTrack,
+    streaming: true
   });
 });
 
-// ================= LOOP =================
+// ================= LOOPS =================
 setInterval(() => {
   state.uptime = process.uptime();
   state.listeners = clients.size;
-
+  state.currentTrack = streamState.currentTrack;
   broadcast({ type: 'state', data: state });
 }, 10000);
 
-// ================= PING WS (ANTI DROP RENDER) =================
 setInterval(() => {
   clients.forEach(ws => {
     if (ws.readyState === WebSocket.OPEN) {
@@ -331,10 +339,15 @@ setInterval(() => {
 console.log('ROOT_DIR:', ROOT_DIR);
 console.log('FRONTEND_DIR:', FRONTEND_DIR);
 console.log('AUDIO_DIR:', AUDIO_DIR);
-console.log('Quantidade de músicas:', PLAYLIST.length);
+console.log('Músicas:', PLAYLIST.length);
+
+// Iniciar AutoDJ
+startAutoDJ();
 
 server.listen(PORT, '0.0.0.0', () => {
-  log('info', `Servidor rodando na porta ${PORT}`);
+  log('info', `🎵 Rádio Amigos do Seu Zé rodando na porta ${PORT}`);
+  log('info', `📡 Streaming em tempo real ativo`);
+  log('info', `💬 Chat ao vivo ativo`);
 });
 
 module.exports = { app, server, wss };
