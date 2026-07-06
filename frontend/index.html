@@ -358,15 +358,15 @@
             border: none;
         }
 
-        /* Playlist */
-        .playlist-section {
+        /* Chat Section */
+        .chat-section {
             width: 90%;
             max-width: 400px;
             margin: 0 auto 40px;
             margin-bottom: max(40px, env(safe-area-inset-bottom));
         }
 
-        .playlist-header {
+        .chat-header {
             display: flex;
             align-items: center;
             justify-content: space-between;
@@ -374,7 +374,7 @@
             padding: 0 10px;
         }
 
-        .playlist-title {
+        .chat-title {
             font-size: 14px;
             font-weight: 600;
             letter-spacing: 1px;
@@ -384,80 +384,207 @@
             gap: 8px;
         }
 
-        .playlist-count {
+        .chat-online-count {
             font-size: 12px;
             color: rgba(255,255,255,0.5);
         }
 
-        .playlist {
-            background: rgba(255,255,255,0.03);
-            border: 1px solid rgba(255,255,255,0.05);
+        .chat-container {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.05);
             border-radius: 16px;
             overflow: hidden;
-            max-height: 300px;
+            display: flex;
+            flex-direction: column;
+            height: 320px;
+        }
+
+        .chat-messages {
+            flex: 1;
             overflow-y: auto;
             -webkit-overflow-scrolling: touch;
+            padding: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
         }
 
-        .playlist::-webkit-scrollbar {
-            width: 6px;
+        .chat-messages::-webkit-scrollbar {
+            width: 4px;
         }
 
-        .playlist::-webkit-scrollbar-track {
+        .chat-messages::-webkit-scrollbar-track {
             background: transparent;
         }
 
-        .playlist::-webkit-scrollbar-thumb {
+        .chat-messages::-webkit-scrollbar-thumb {
             background: rgba(255,255,255,0.1);
-            border-radius: 3px;
+            border-radius: 2px;
         }
 
-        .playlist-item {
+        .chat-message {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            max-width: 85%;
+            animation: slideIn 0.3s ease;
+        }
+
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .chat-message.own {
+            align-self: flex-end;
+            align-items: flex-end;
+        }
+
+        .chat-message.other {
+            align-self: flex-start;
+            align-items: flex-start;
+        }
+
+        .chat-message.system {
+            align-self: center;
+            align-items: center;
+        }
+
+        .chat-message.system .chat-bubble {
+            background: rgba(255,255,255,0.05);
+            color: rgba(255,255,255,0.5);
+            font-size: 11px;
+            font-style: italic;
+            border-radius: 12px;
+        }
+
+        .chat-message.own .chat-bubble {
+            background: linear-gradient(135deg, #e94560, #ff6b6b);
+            color: #fff;
+            border-bottom-right-radius: 4px;
+        }
+
+        .chat-message.other .chat-bubble {
+            background: rgba(255,255,255,0.08);
+            color: #fff;
+            border-bottom-left-radius: 4px;
+        }
+
+        .chat-bubble {
+            padding: 8px 12px;
+            border-radius: 16px;
+            font-size: 13px;
+            line-height: 1.4;
+            word-break: break-word;
+            max-width: 100%;
+        }
+
+        .chat-meta {
+            font-size: 10px;
+            color: rgba(255,255,255,0.4);
             display: flex;
             align-items: center;
-            gap: 12px;
-            padding: 12px 15px;
-            cursor: pointer;
-            transition: background 0.2s ease;
-            border-bottom: 1px solid rgba(255,255,255,0.03);
-            touch-action: manipulation;
-            -webkit-tap-highlight-color: rgba(233, 69, 96, 0.1);
+            gap: 4px;
         }
 
-        .playlist-item:active {
-            background: rgba(255,255,255,0.08);
+        .chat-input-area {
+            display: flex;
+            gap: 8px;
+            padding: 10px 12px;
+            border-top: 1px solid rgba(255,255,255,0.05);
+            background: rgba(255,255,255,0.02);
         }
 
-        .playlist-item.active {
-            background: rgba(233, 69, 96, 0.1);
-            border-left: 3px solid #e94560;
-        }
-
-        .playlist-item-number {
-            font-size: 12px;
-            color: rgba(255,255,255,0.3);
-            width: 25px;
-            text-align: center;
-            flex-shrink: 0;
-        }
-
-        .playlist-item-info {
+        .chat-input {
             flex: 1;
-            min-width: 0;
-        }
-
-        .playlist-item-title {
+            background: rgba(255,255,255,0.06);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 20px;
+            padding: 8px 14px;
+            color: #fff;
             font-size: 13px;
-            font-weight: 500;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
+            outline: none;
+            font-family: inherit;
         }
 
-        .playlist-item-duration {
-            font-size: 12px;
-            color: rgba(255,255,255,0.4);
+        .chat-input::placeholder {
+            color: rgba(255,255,255,0.3);
+        }
+
+        .chat-send-btn {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            border: none;
+            background: linear-gradient(135deg, #e94560, #ff6b6b);
+            color: #fff;
+            font-size: 16px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.15s ease;
             flex-shrink: 0;
+            -webkit-appearance: none;
+            appearance: none;
+        }
+
+        .chat-send-btn:active {
+            transform: scale(0.92);
+        }
+
+        .chat-send-btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
+        .chat-typing {
+            font-size: 11px;
+            color: rgba(255,255,255,0.4);
+            padding: 0 12px 6px;
+            font-style: italic;
+            min-height: 18px;
+        }
+
+        .chat-name-input {
+            display: flex;
+            gap: 8px;
+            padding: 10px 12px;
+            border-top: 1px solid rgba(255,255,255,0.05);
+            background: rgba(255,255,255,0.02);
+        }
+
+        .chat-name-input input {
+            flex: 1;
+            background: rgba(255,255,255,0.06);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 20px;
+            padding: 8px 14px;
+            color: #fff;
+            font-size: 13px;
+            outline: none;
+            font-family: inherit;
+        }
+
+        .chat-name-input input::placeholder {
+            color: rgba(255,255,255,0.3);
+        }
+
+        .chat-name-input button {
+            padding: 8px 16px;
+            border-radius: 20px;
+            border: none;
+            background: linear-gradient(135deg, #e94560, #ff6b6b);
+            color: #fff;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            -webkit-appearance: none;
+            appearance: none;
+        }
+
+        .chat-name-input button:active {
+            transform: scale(0.95);
         }
 
         /* Error Message */
@@ -617,6 +744,10 @@
             .track-title {
                 font-size: 18px;
             }
+
+            .chat-container {
+                height: 280px;
+            }
         }
 
         /* Reduce motion preference */
@@ -628,6 +759,7 @@
             }
         }
     </style>
+<base target="_blank">
 <base target="_blank">
 </head>
 <body>
@@ -708,16 +840,26 @@
         </div>
     </div>
 
-    <!-- Playlist -->
-    <div class="playlist-section">
-        <div class="playlist-header">
-            <div class="playlist-title">🎵 Playlist</div>
-            <div class="playlist-count" id="playlistCount">0 músicas</div>
+    <!-- Chat Section -->
+    <div class="chat-section">
+        <div class="chat-header">
+            <div class="chat-title">💬 Chat ao Vivo</div>
+            <div class="chat-online-count" id="chatOnlineCount">0 ouvintes</div>
         </div>
-        <div class="playlist" id="playlist">
-            <div style="text-align: center; padding: 30px; color: rgba(255,255,255,0.3);">
-                <div class="loading"></div>
-                <p style="margin-top: 10px; font-size: 13px;">Carregando playlist...</p>
+        <div class="chat-container" id="chatContainer">
+            <div class="chat-messages" id="chatMessages">
+                <div class="chat-message system">
+                    <div class="chat-bubble">👋 Bem-vindo ao chat da Rádio Amigos do Seu Zé!</div>
+                </div>
+            </div>
+            <div class="chat-typing" id="chatTyping"></div>
+            <div class="chat-name-input" id="chatNameInput">
+                <input type="text" id="chatNameField" placeholder="Digite seu nome..." maxlength="20">
+                <button id="chatNameBtn">Entrar</button>
+            </div>
+            <div class="chat-input-area" id="chatInputArea" style="display: none;">
+                <input type="text" class="chat-input" id="chatInput" placeholder="Digite sua mensagem..." maxlength="200">
+                <button class="chat-send-btn" id="chatSendBtn">➤</button>
             </div>
         </div>
     </div>
@@ -747,11 +889,6 @@
         /**
          * Rádio Amigos do Seu Zé - Player Ultra-Compatível
          * Android, iPhone, iPad, Desktop - Todos os navegadores
-         * 
-         * Políticas de autoplay:
-         * - iOS Safari: requer interação do usuário antes de play()
-         * - Android Chrome: requer interação ou MEI alto
-         * - Desktop: geralmente permite autoplay após primeira interação
          */
 
         (function() {
@@ -773,13 +910,22 @@
                 currentTime: null,
                 statusBadge: null,
                 statusText: null,
-                playlist: null,
-                playlistCount: null,
                 errorMessage: null,
                 visualizer: null,
                 toast: null,
                 interactionOverlay: null,
                 startAudioBtn: null,
+
+                // Chat Elements
+                chatMessages: null,
+                chatInput: null,
+                chatSendBtn: null,
+                chatNameInput: null,
+                chatNameField: null,
+                chatNameBtn: null,
+                chatInputArea: null,
+                chatTyping: null,
+                chatOnlineCount: null,
 
                 // State
                 tracks: [],
@@ -800,6 +946,11 @@
                 userInteracted: false,
                 autoplayBlocked: false,
 
+                // Chat State
+                chatUserName: '',
+                chatWs: null,
+                chatWsReconnectTimer: null,
+
                 init() {
                     this.detectDevice();
                     this.cacheElements();
@@ -812,8 +963,7 @@
                     this.loadPlaylist();
                     this.connectWebSocket();
                     this.setVolume(80);
-
-                    // Detectar se autoplay é permitido
+                    this.initChat();
                     this.checkAutoplayPolicy();
                 },
 
@@ -842,13 +992,22 @@
                     this.currentTime = document.getElementById('currentTime');
                     this.statusBadge = document.getElementById('statusBadge');
                     this.statusText = document.getElementById('statusText');
-                    this.playlist = document.getElementById('playlist');
-                    this.playlistCount = document.getElementById('playlistCount');
                     this.errorMessage = document.getElementById('errorMessage');
                     this.visualizer = document.getElementById('visualizer');
                     this.toast = document.getElementById('toast');
                     this.interactionOverlay = document.getElementById('interactionOverlay');
                     this.startAudioBtn = document.getElementById('startAudioBtn');
+
+                    // Chat elements
+                    this.chatMessages = document.getElementById('chatMessages');
+                    this.chatInput = document.getElementById('chatInput');
+                    this.chatSendBtn = document.getElementById('chatSendBtn');
+                    this.chatNameInput = document.getElementById('chatNameInput');
+                    this.chatNameField = document.getElementById('chatNameField');
+                    this.chatNameBtn = document.getElementById('chatNameBtn');
+                    this.chatInputArea = document.getElementById('chatInputArea');
+                    this.chatTyping = document.getElementById('chatTyping');
+                    this.chatOnlineCount = document.getElementById('chatOnlineCount');
                 },
 
                 getBaseUrl() {
@@ -857,7 +1016,6 @@
 
                 // ===== AUTPLAY DETECTION =====
                 async checkAutoplayPolicy() {
-                    // Método moderno: Navigator.getAutoplayPolicy()
                     if (navigator.getAutoplayPolicy) {
                         const policy = navigator.getAutoplayPolicy('mediaelement');
                         console.log('Autoplay policy:', policy);
@@ -867,7 +1025,6 @@
                         return;
                     }
 
-                    // Fallback: tentar tocar áudio silencioso
                     if (this.isMobile || this.isSafari) {
                         const testAudio = new Audio();
                         testAudio.volume = 0;
@@ -884,7 +1041,6 @@
 
                 // ===== EVENT BINDING =====
                 bindEvents() {
-                    // Botão de play principal
                     this.bindTouch(this.playBtn, (e) => {
                         e.preventDefault();
                         e.stopPropagation();
@@ -920,7 +1076,6 @@
                         this.setVolume(e.target.value);
                     });
 
-                    // Progress bar
                     this.bindTouch(this.progressBar, (e) => {
                         e.preventDefault();
                         const rect = this.progressBar.getBoundingClientRect();
@@ -929,7 +1084,6 @@
                         this.seek(percent);
                     });
 
-                    // Overlay de interação para mobile
                     if (this.startAudioBtn) {
                         this.bindTouch(this.startAudioBtn, (e) => {
                             e.preventDefault();
@@ -940,7 +1094,6 @@
                         });
                     }
 
-                    // Detectar primeira interação em qualquer lugar da página
                     const firstInteraction = () => {
                         this.handleUserInteraction();
                         document.removeEventListener('touchstart', firstInteraction);
@@ -949,7 +1102,6 @@
                     document.addEventListener('touchstart', firstInteraction, { once: true, passive: true });
                     document.addEventListener('click', firstInteraction, { once: true });
 
-                    // Visibility API
                     document.addEventListener('visibilitychange', () => {
                         if (document.hidden) {
                             this.pauseVisualizer();
@@ -958,7 +1110,6 @@
                         }
                     });
 
-                    // Online/Offline
                     window.addEventListener('online', () => {
                         this.showToast('Conexão restaurada');
                         if (this.tracks.length === 0) {
@@ -976,8 +1127,6 @@
                     if (!this.userInteracted) {
                         this.userInteracted = true;
                         console.log('User interaction detected');
-
-                        // iOS: inicializar AudioContext após interação
                         if (this.isIOS || this.isSafari) {
                             this.initAudioContext();
                         }
@@ -999,14 +1148,11 @@
                 bindTouch(element, handler) {
                     if (!element) return;
 
-                    // Usar pointerdown para unificar mouse e touch
                     element.addEventListener('pointerdown', (e) => {
                         handler(e);
                     });
 
-                    // Fallback touchstart com preventDefault para evitar delay de 300ms
                     element.addEventListener('touchstart', (e) => {
-                        // Não previne default aqui para permitir scroll
                     }, { passive: true });
 
                     element.addEventListener('touchend', (e) => {
@@ -1014,7 +1160,6 @@
                         handler(e);
                     }, { passive: false });
 
-                    // Fallback click
                     element.addEventListener('click', (e) => {
                         handler(e);
                     });
@@ -1090,18 +1235,18 @@
 
                     if (error) {
                         switch(error.code) {
-                            case 1: // MEDIA_ERR_ABORTED
+                            case 1:
                                 msg = 'Reprodução interrompida.';
                                 break;
-                            case 2: // MEDIA_ERR_NETWORK
+                            case 2:
                                 msg = 'Erro de rede. Verificando conexão...';
                                 shouldRetry = true;
                                 break;
-                            case 3: // MEDIA_ERR_DECODE
+                            case 3:
                                 msg = 'Erro de decodificação. Tentando próxima música...';
                                 shouldRetry = true;
                                 break;
-                            case 4: // MEDIA_ERR_SRC_NOT_SUPPORTED
+                            case 4:
                                 msg = 'Formato não suportado ou arquivo não encontrado.';
                                 break;
                         }
@@ -1127,7 +1272,6 @@
                             if (!this.audioContext) {
                                 this.audioContext = new AudioContext();
                             }
-                            // iOS: resume contexto se suspenso
                             if (this.audioContext.state === 'suspended') {
                                 this.audioContext.resume().then(() => {
                                     console.log('AudioContext resumed');
@@ -1169,12 +1313,10 @@
                                 artist: track.artist || 'Ponto de Umbanda'
                             }));
 
-                            this.renderPlaylist();
-                            this.playlistCount.textContent = `${this.tracks.length} música${this.tracks.length !== 1 ? 's' : ''}`;
                             this.hideError();
-                            this.loadTrack(0, false);
-                            this.setStatus('online', 'Pronto para tocar');
-                            console.log(`Playlist loaded: ${this.tracks.length} tracks`);
+                            this.loadTrack(0, true);
+                            this.setStatus('online', 'Tocando');
+                            console.log(`Playlist loaded: ${this.tracks.length} tracks, autoplay enabled`);
                         } else {
                             throw new Error('Playlist vazia');
                         }
@@ -1198,21 +1340,6 @@
 
                     this.showError('Não foi possível carregar a playlist. Verifique sua conexão.');
                     this.setStatus('offline', 'Servidor indisponível');
-
-                    this.playlist.innerHTML = `
-                        <div style="text-align: center; padding: 30px; color: rgba(255,255,255,0.3);">
-                            <p style="font-size: 24px; margin-bottom: 10px;">📂</p>
-                            <p>Nenhuma música disponível</p>
-                            <p style="font-size: 12px; margin-top: 8px; opacity: 0.7;">
-                                Toque aqui para tentar novamente
-                            </p>
-                        </div>
-                    `;
-                    this.playlist.querySelector('div').addEventListener('click', () => {
-                        this.apiRetryCount = 0;
-                        this.loadPlaylist();
-                    });
-                    this.playlistCount.textContent = '0 músicas';
                 },
 
                 cleanFileName(filename) {
@@ -1221,44 +1348,6 @@
                         .replace(/\.mp3$/i, '')
                         .replace(/[_-]/g, ' ')
                         .trim();
-                },
-
-                renderPlaylist() {
-                    this.playlist.innerHTML = '';
-
-                    this.tracks.forEach((track, index) => {
-                        const item = document.createElement('div');
-                        item.className = `playlist-item ${index === this.currentTrackIndex ? 'active' : ''}`;
-                        item.setAttribute('role', 'button');
-                        item.setAttribute('tabindex', '0');
-                        item.setAttribute('aria-label', `Tocar ${track.name}`);
-                        item.innerHTML = `
-                            <div class="playlist-item-number">${index + 1}</div>
-                            <div class="playlist-item-info">
-                                <div class="playlist-item-title">${this.escapeHtml(track.name)}</div>
-                            </div>
-                            <div class="playlist-item-duration">${index === this.currentTrackIndex && this.isPlaying ? '⏸' : '▶'}</div>
-                        `;
-
-                        const activate = (e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            this.handleUserInteraction();
-                            this.playTrack(index);
-                        };
-
-                        this.bindTouch(item, activate);
-
-                        item.addEventListener('keydown', (e) => {
-                            if (e.key === 'Enter' || e.key === ' ') {
-                                e.preventDefault();
-                                this.handleUserInteraction();
-                                this.playTrack(index);
-                            }
-                        });
-
-                        this.playlist.appendChild(item);
-                    });
                 },
 
                 // ===== TRACK CONTROL =====
@@ -1272,7 +1361,6 @@
 
                     this.trackTitle.textContent = track.name;
                     this.trackArtist.textContent = track.artist || 'Rádio Amigos do Seu Zé';
-                    this.updatePlaylistActive();
 
                     const audioUrl = `${baseUrl}/audio/${encodeURIComponent(track.file)}`;
 
@@ -1280,6 +1368,12 @@
                         this.audio.src = audioUrl;
                         this.audio.load();
                         console.log('Loading track:', audioUrl);
+                    }
+
+                    if (autoPlay) {
+                        setTimeout(() => {
+                            this.play();
+                        }, this.isMobile ? 500 : 200);
                     }
 
                     return true;
@@ -1313,7 +1407,6 @@
                         this.loadTrack(this.currentTrackIndex);
                     }
 
-                    // iOS/Safari: inicializar AudioContext
                     if ((this.isIOS || this.isSafari) && !this.userInteracted) {
                         this.showInteractionOverlay();
                         return;
@@ -1454,17 +1547,6 @@
                     }
                 },
 
-                updatePlaylistActive() {
-                    const items = this.playlist.querySelectorAll('.playlist-item');
-                    items.forEach((item, index) => {
-                        item.classList.toggle('active', index === this.currentTrackIndex);
-                        const durationEl = item.querySelector('.playlist-item-duration');
-                        if (durationEl) {
-                            durationEl.textContent = (index === this.currentTrackIndex && this.isPlaying) ? '⏸' : '▶';
-                        }
-                    });
-                },
-
                 setStatus(type, text) {
                     if (this.statusBadge && this.statusText) {
                         this.statusBadge.className = `status-badge ${type}`;
@@ -1583,9 +1665,128 @@
                         const listeners = data.data.listeners || 0;
                         const statusText = this.isPlaying ? 'Tocando' : 'Pronto';
                         this.setStatus('online', `${statusText} · ${listeners} ouvinte${listeners !== 1 ? 's' : ''}`);
+                        this.updateChatOnlineCount(listeners);
                     }
                     if (data.type === 'pong') {
-                        // Connection alive
+                    }
+                    // ===== CHAT VIA MESMO WEBSOCKET =====
+                    if (data.type === 'chat' && data.name && data.message) {
+                        if (data.name !== this.chatUserName) {
+                            this.addChatMessage('other', data.name, data.message);
+                        }
+                    }
+                    if (data.type === 'system' && data.message) {
+                        this.addChatMessage('system', 'Sistema', data.message);
+                    }
+                    if (data.type === 'online_count') {
+                        this.updateChatOnlineCount(data.count);
+                    }
+                    if (data.type === 'chat_history' && Array.isArray(data.data)) {
+                        data.data.forEach(msg => {
+                            if (msg.type === 'chat' && msg.name && msg.message) {
+                                const isOwn = msg.name === this.chatUserName;
+                                this.addChatMessage(isOwn ? 'own' : 'other', msg.name, msg.message, false);
+                            }
+                        });
+                    }
+                },
+
+                // ===== CHAT =====
+                initChat() {
+                    const savedName = localStorage.getItem('zelar_radio_chat_name');
+                    if (savedName) {
+                        this.chatUserName = savedName;
+                        this.showChatInput();
+                        // Notificar servidor que entrou no chat
+                        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                            this.ws.send(JSON.stringify({
+                                type: 'join_chat',
+                                name: this.chatUserName
+                            }));
+                        }
+                    }
+
+                    this.bindTouch(this.chatNameBtn, (e) => {
+                        e.preventDefault();
+                        const name = this.chatNameField.value.trim();
+                        if (name) {
+                            this.chatUserName = name;
+                            localStorage.setItem('zelar_radio_chat_name', name);
+                            this.showChatInput();
+                            this.showToast(`Bem-vindo, ${name}!`);
+                            if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                                this.ws.send(JSON.stringify({
+                                    type: 'join_chat',
+                                    name: this.chatUserName
+                                }));
+                            }
+                        }
+                    });
+
+                    this.chatNameField.addEventListener('keydown', (e) => {
+                        if (e.key === 'Enter') {
+                            e.preventDefault();
+                            this.chatNameBtn.click();
+                        }
+                    });
+
+                    this.bindTouch(this.chatSendBtn, (e) => {
+                        e.preventDefault();
+                        this.sendChatMessage();
+                    });
+
+                    this.chatInput.addEventListener('keydown', (e) => {
+                        if (e.key === 'Enter') {
+                            e.preventDefault();
+                            this.sendChatMessage();
+                        }
+                    });
+                },
+
+                showChatInput() {
+                    this.chatNameInput.style.display = 'none';
+                    this.chatInputArea.style.display = 'flex';
+                    this.chatInput.focus();
+                },
+
+                sendChatMessage() {
+                    const text = this.chatInput.value.trim();
+                    if (!text || !this.chatUserName) return;
+
+                    this.addChatMessage('own', this.chatUserName, text);
+                    this.chatInput.value = '';
+
+                    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                        this.ws.send(JSON.stringify({
+                            type: 'chat',
+                            name: this.chatUserName,
+                            message: text
+                        }));
+                    }
+                },
+
+                addChatMessage(type, name, text, animate = true) {
+                    const msgDiv = document.createElement('div');
+                    msgDiv.className = `chat-message ${type}`;
+                    if (!animate) msgDiv.style.animation = 'none';
+
+                    const time = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+
+                    if (type === 'system') {
+                        msgDiv.innerHTML = `<div class="chat-bubble">${this.escapeHtml(text)}</div>`;
+                    } else {
+                        msgDiv.innerHTML = `
+                            <div class="chat-bubble">${this.escapeHtml(text)}</div>
+                            <div class="chat-meta">${this.escapeHtml(name)} · ${time}</div>
+                        `;
+                    }
+                    this.chatMessages.appendChild(msgDiv);
+                    this.chatMessages.scrollTop = this.chatMessages.scrollHeight;
+                },
+
+                updateChatOnlineCount(count) {
+                    if (this.chatOnlineCount) {
+                        this.chatOnlineCount.textContent = `${count} ouvinte${count !== 1 ? 's' : ''}`;
                     }
                 },
 

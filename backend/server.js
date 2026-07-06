@@ -18,6 +18,7 @@ const NODE_ENV = process.env.NODE_ENV || 'development';
 const ROOT_DIR = path.resolve(__dirname, '..');
 const FRONTEND_DIR = path.join(ROOT_DIR, 'frontend');
 const AUDIO_DIR = path.join(ROOT_DIR, 'audio');
+
 // ================= MIDDLEWARE =================
 app.use(cors({
   origin: NODE_ENV === 'production'
@@ -49,7 +50,6 @@ if (fs.existsSync(AUDIO_DIR)) {
   console.error(`Pasta de áudio não encontrada: ${AUDIO_DIR}`);
 }
 
-// ================= PLAYLIST =================
 // ================= PLAYLIST AUTOMÁTICA =================
 let PLAYLIST = [];
 
@@ -66,6 +66,38 @@ if (fs.existsSync(AUDIO_DIR)) {
   console.log(`✓ ${PLAYLIST.length} músicas carregadas.`);
 } else {
   console.error(`Pasta de áudio não encontrada: ${AUDIO_DIR}`);
+}
+
+// ================= CHAT HISTORY =================
+const MAX_CHAT_HISTORY = 100;
+let chatHistory = [];
+let chatUsers = new Map(); // ws -> { name, joinedAt }
+
+function addChatMessage(name, message) {
+  const msg = {
+    type: 'chat',
+    name: name,
+    message: message,
+    time: Date.now()
+  };
+  chatHistory.push(msg);
+  if (chatHistory.length > MAX_CHAT_HISTORY) {
+    chatHistory.shift();
+  }
+  return msg;
+}
+
+function broadcastChat(data, excludeWs = null) {
+  const msg = JSON.stringify(data);
+  clients.forEach(ws => {
+    if (ws !== excludeWs && ws.readyState === WebSocket.OPEN) {
+      ws.send(msg);
+    }
+  });
+}
+
+function getOnlineCount() {
+  return chatUsers.size;
 }
 
 // ================= STATE =================
@@ -118,6 +150,20 @@ wss.on('connection', (ws) => {
   ws.send(JSON.stringify({ type: 'state', data: state }));
   ws.send(JSON.stringify({ type: 'playlist', data: state.playlist }));
 
+  // Enviar histórico do chat para novo usuário
+  if (chatHistory.length > 0) {
+    ws.send(JSON.stringify({
+      type: 'chat_history',
+      data: chatHistory.slice(-20)
+    }));
+  }
+
+  // Notificar todos sobre novo ouvinte online
+  broadcastChat({
+    type: 'online_count',
+    count: getOnlineCount()
+  });
+
   ws.on('message', (message) => {
     try {
       const data = JSON.parse(message);
@@ -140,14 +186,59 @@ wss.on('connection', (ws) => {
         broadcast({ type: 'metadata', data: state.currentTrack });
       }
 
+      // ===== CHAT AO VIVO =====
+      if (data.type === 'chat' && data.name && data.message) {
+        const name = String(data.name).trim().substring(0, 20);
+        const msgText = String(data.message).trim().substring(0, 200);
+
+        if (name && msgText) {
+          // Registrar usuário
+          chatUsers.set(ws, { name, joinedAt: Date.now() });
+
+          const chatMsg = addChatMessage(name, msgText);
+          broadcastChat(chatMsg);
+          log('info', `Chat: ${name}: ${msgText.substring(0, 50)}`);
+        }
+      }
+
+      if (data.type === 'join_chat' && data.name) {
+        const name = String(data.name).trim().substring(0, 20);
+        if (name) {
+          chatUsers.set(ws, { name, joinedAt: Date.now() });
+          broadcastChat({
+            type: 'system',
+            message: `👋 ${name} entrou no chat`
+          });
+          broadcastChat({
+            type: 'online_count',
+            count: getOnlineCount()
+          });
+        }
+      }
+
     } catch (err) {
       log('error', `WS error: ${err.message}`);
     }
   });
 
   ws.on('close', () => {
+    const userInfo = chatUsers.get(ws);
     clients.delete(ws);
+    chatUsers.delete(ws);
     state.listeners = clients.size;
+
+    if (userInfo) {
+      broadcastChat({
+        type: 'system',
+        message: `👋 ${userInfo.name} saiu do chat`
+      });
+    }
+
+    broadcastChat({
+      type: 'online_count',
+      count: getOnlineCount()
+    });
+
     log('info', `Cliente desconectado. Total: ${state.listeners}`);
   });
 });
@@ -241,15 +332,7 @@ console.log('ROOT_DIR:', ROOT_DIR);
 console.log('FRONTEND_DIR:', FRONTEND_DIR);
 console.log('AUDIO_DIR:', AUDIO_DIR);
 console.log('Quantidade de músicas:', PLAYLIST.length);
-console.log("ROOT_DIR:", ROOT_DIR);
-console.log("FRONTEND_DIR:", FRONTEND_DIR);
-console.log("AUDIO_DIR:", AUDIO_DIR);
-console.log("Audio existe?", fs.existsSync(AUDIO_DIR));
 
-if (fs.existsSync(AUDIO_DIR)) {
-    console.log("Arquivos:");
-    console.log(fs.readdirSync(AUDIO_DIR));
-}
 server.listen(PORT, '0.0.0.0', () => {
   log('info', `Servidor rodando na porta ${PORT}`);
 });
