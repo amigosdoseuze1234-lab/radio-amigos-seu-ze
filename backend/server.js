@@ -5,12 +5,42 @@ const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
-const { pipeline, PassThrough } = require('stream');
+const { PassThrough } = require('stream');
 require('dotenv').config();
 
 const app = express();
 const server = http.createServer(app);
-const wss = new WebSocket.Server({ server });
+
+// ================= CONFIGURAÇÃO DO WEBSOCKET =================
+// heartbeatInterval: tempo entre pings do servidor
+// heartbeatTimeout: tempo máximo para cliente responder pong
+const HEARTBEAT_INTERVAL = 30000;  // 30s
+const HEARTBEAT_TIMEOUT = 60000;   // 60s (2x o intervalo)
+
+const wss = new WebSocket.Server({
+  server,
+  // Permite conexões sem origin (navegadores mobile, extensões, etc.)
+  verifyClient: (info, done) => {
+    const origin = info.origin;
+    // Em produção, aceita origin válido OU sem origin (alguns clientes não enviam)
+    if (NODE_ENV === 'production') {
+      const allowedOrigins = [
+        'https://radioamigosdoseuze.com.br',
+        'https://www.radioamigosdoseuze.com.br',
+        'http://radioamigosdoseuze.com.br',
+        'http://www.radioamigosdoseuze.com.br'
+      ];
+      // Aceita se origin estiver na lista OU for undefined (clientes locais/teste)
+      if (!origin || allowedOrigins.includes(origin)) {
+        return done(true);
+      }
+      console.warn(`WebSocket origin bloqueado: ${origin}`);
+      return done(false, 403, 'Origin não autorizado');
+    }
+    // Desenvolvimento: aceita tudo
+    done(true);
+  }
+});
 
 // ================= CONFIG =================
 const PORT = process.env.PORT || 10000;
@@ -23,7 +53,7 @@ const AUDIO_DIR = path.join(ROOT_DIR, 'audio');
 // ================= MIDDLEWARE =================
 app.use(cors({
   origin: NODE_ENV === 'production'
-    ? ['https://radioamigosdoseuze.com.br']
+    ? ['https://radioamigosdoseuze.com.br', 'https://www.radioamigosdoseuze.com.br']
     : '*',
   credentials: true
 }));
@@ -66,8 +96,7 @@ if (fs.existsSync(AUDIO_DIR)) {
   console.error(`Pasta de áudio não encontrada: ${AUDIO_DIR}`);
 }
 
-// ================= METADADOS ID3 (opcional, requer music-metadata) =================
-// Se music-metadata estiver instalado, usa ele; senão, fallback para nome do arquivo
+// ================= METADADOS ID3 =================
 let parseFile;
 try {
   const mm = require('music-metadata');
@@ -117,7 +146,6 @@ async function loadPlaylist() {
     const filePath = path.join(AUDIO_DIR, file);
     const meta = await getTrackMetadata(filePath);
     const stats = fs.statSync(filePath);
-    // Duração estimada se não tiver ID3: bitrate médio ~192kbps = 24KB/s
     const estimatedDuration = meta.duration > 0
       ? meta.duration
       : Math.ceil(stats.size / 24000);
@@ -128,7 +156,7 @@ async function loadPlaylist() {
       artist: meta.artist,
       album: meta.album,
       path: filePath,
-      duration: estimatedDuration, // em segundos
+      duration: estimatedDuration,
       size: stats.size
     });
   }
@@ -136,13 +164,13 @@ async function loadPlaylist() {
   console.log(`✓ ${PLAYLIST.length} músicas carregadas.`);
 }
 
-// ================= STREAMING CONTÍNUO COM FFMPEG =================
+// ================= STREAMING COM FFMPEG =================
 let currentTrackIndex = 0;
 let isPlaying = false;
 let ffmpegProcess = null;
-let broadcastStream = null; // PassThrough único que alimenta TODOS os clientes
+let broadcastStream = null;
 let streamClients = 0;
-let activeResponses = new Set(); // Set de res.write() ativos
+let activeResponses = new Set();
 let trackStartTime = 0;
 let currentTrackDuration = 0;
 let trackTimeout = null;
@@ -160,26 +188,35 @@ function getCurrentTrack() {
   return PLAYLIST[idx];
 }
 
+// ================= HELPERS DE BROADCAST SEGURO =================
+// Envia mensagem WebSocket com tratamento de erro
+function safeWsSend(ws, data) {
+  try {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify(data));
+    }
+  } catch (err) {
+    log('warn', `Erro ao enviar WS: ${err.message}`);
+    // Marca como inativo para cleanup
+    ws.isAlive = false;
+  }
+}
+
 function broadcastMetadata(track) {
-  const msg = JSON.stringify({
+  const msg = {
     type: 'metadata',
     data: {
       title: track.title,
       artist: track.artist,
       file: track.file
     }
-  });
-
-  clients.forEach(ws => {
-    if (ws.readyState === WebSocket.OPEN) {
-      ws.send(msg);
-    }
-  });
+  };
+  clients.forEach(ws => safeWsSend(ws, msg));
 }
 
 function broadcastState() {
   const track = getCurrentTrack();
-  const msg = JSON.stringify({
+  const msg = {
     type: 'state',
     data: {
       listeners: streamClients,
@@ -187,25 +224,25 @@ function broadcastState() {
       isLive: true,
       uptime: process.uptime()
     }
-  });
+  };
+  clients.forEach(ws => safeWsSend(ws, msg));
+}
 
+function broadcastChat(data, excludeWs = null) {
+  const msg = { ...data };
   clients.forEach(ws => {
-    if (ws.readyState === WebSocket.OPEN) {
-      ws.send(msg);
+    if (ws !== excludeWs) {
+      safeWsSend(ws, msg);
     }
   });
 }
 
-// ================= SISTEMA DE STREAMING COM FFMPEG =================
-// Usa UM único ffmpeg que transcodifica e envia para um PassThrough
-// Todos os clientes leem desse mesmo PassThrough (rádio ao vivo real)
-
+// ================= SISTEMA DE STREAMING =================
 function startRadioStream() {
   if (PLAYLIST.length === 0) {
     log('error', 'Nenhuma música na playlist');
     return;
   }
-
   if (isPlaying) {
     log('warn', 'Rádio já está tocando');
     return;
@@ -219,11 +256,19 @@ function startRadioStream() {
 function stopRadioStream() {
   isPlaying = false;
   if (ffmpegProcess) {
-    ffmpegProcess.kill('SIGTERM');
+    try {
+      ffmpegProcess.kill('SIGTERM');
+    } catch (e) {
+      // já morto
+    }
     ffmpegProcess = null;
   }
   if (broadcastStream) {
-    broadcastStream.end();
+    try {
+      broadcastStream.end();
+    } catch (e) {
+      // já fechado
+    }
     broadcastStream = null;
   }
   if (trackTimeout) {
@@ -258,31 +303,27 @@ function playNextTrack() {
 
   // Criar o broadcast stream único
   if (broadcastStream) {
-    broadcastStream.end();
+    try { broadcastStream.end(); } catch (e) {}
   }
   broadcastStream = new PassThrough();
 
-  // Detectar ffmpeg disponível
   const ffmpegPath = process.env.FFMPEG_PATH || 'ffmpeg';
 
-  // FFmpeg: transcodifica para MP3 estéreo 128kbps, 44100Hz
-  // Isso garante compatibilidade com todos os players
   ffmpegProcess = spawn(ffmpegPath, [
-    '-re',                    // Leitura em tempo real (não acelerada)
-    '-i', track.path,         // Input
-    '-map_metadata', '-1',    // Remove metadados ID3 do stream
-    '-acodec', 'libmp3lame',  // Codec MP3
-    '-ab', '128k',            // Bitrate 128kbps
-    '-ar', '44100',           // Sample rate 44100Hz
-    '-ac', '2',               // Estéreo
-    '-f', 'mp3',              // Formato de saída MP3
-    '-flush_packets', '1',    // Flush imediato
-    'pipe:1'                  // Saída para stdout
+    '-re',
+    '-i', track.path,
+    '-map_metadata', '-1',
+    '-acodec', 'libmp3lame',
+    '-ab', '128k',
+    '-ar', '44100',
+    '-ac', '2',
+    '-f', 'mp3',
+    '-flush_packets', '1',
+    'pipe:1'
   ], {
     stdio: ['ignore', 'pipe', 'pipe']
   });
 
-  // Pipe do ffmpeg stdout -> broadcastStream
   ffmpegProcess.stdout.pipe(broadcastStream, { end: false });
 
   ffmpegProcess.stdout.on('error', (err) => {
@@ -290,13 +331,11 @@ function playNextTrack() {
   });
 
   ffmpegProcess.stderr.on('data', (data) => {
-    // FFmpeg loga no stderr; ignorar ou logar em debug
-    // log('debug', `FFmpeg: ${data.toString().trim()}`);
+    // FFmpeg loga no stderr; silenciar em produção
   });
 
   ffmpegProcess.on('error', (err) => {
     log('error', `Erro ao iniciar ffmpeg: ${err.message}`);
-    // Retry com próxima música
     setTimeout(() => playNextTrack(), 2000);
   });
 
@@ -305,26 +344,48 @@ function playNextTrack() {
       if (code !== 0 && code !== null) {
         log('warn', `FFmpeg encerrou com código ${code}`);
       }
-      // Avança para próxima música
       setTimeout(() => playNextTrack(), 1000);
     }
   });
 
-  // Backup: força próxima música após duração + 5s (caso ffmpeg trave)
+  // Backup timeout
   trackTimeout = setTimeout(() => {
     if (isPlaying && ffmpegProcess) {
       log('warn', `⏭ Timeout atingido para ${track.title}`);
-      ffmpegProcess.kill('SIGTERM');
+      try { ffmpegProcess.kill('SIGTERM'); } catch (e) {}
     }
   }, currentTrackDuration + 5000);
 
-  // Distribuir dados para todos os clientes conectados
+  // Distribuir dados para clientes com tratamento de erro e backpressure
   broadcastStream.on('data', (chunk) => {
+    const deadResponses = [];
     activeResponses.forEach(res => {
-      if (!res.destroyed && res.writableEnded === false) {
-        res.write(chunk);
+      if (res.destroyed || res.writableEnded) {
+        deadResponses.push(res);
+        return;
+      }
+      try {
+        const ok = res.write(chunk);
+        // Se res.write retornar false, buffer está cheio (backpressure)
+        // Não fazemos pause aqui pois é stream ao vivo, mas marcamos
+        if (!ok) {
+          // Opcional: remover clientes lentos
+          // deadResponses.push(res);
+        }
+      } catch (err) {
+        log('warn', `Erro ao escrever no stream: ${err.message}`);
+        deadResponses.push(res);
       }
     });
+    // Limpar responses mortos
+    deadResponses.forEach(res => {
+      activeResponses.delete(res);
+      try { res.end(); } catch (e) {}
+    });
+    if (deadResponses.length > 0) {
+      streamClients = activeResponses.size;
+      broadcastState();
+    }
   });
 
   broadcastStream.on('error', (err) => {
@@ -335,10 +396,10 @@ function playNextTrack() {
 // ================= CHAT COM RATE LIMITING =================
 const MAX_CHAT_HISTORY = 100;
 let chatHistory = [];
-let chatUsers = new Map(); // ws -> { name, joinedAt, lastMessageTime, messageCount }
+let chatUsers = new Map();
 const CHAT_RATE_LIMIT = {
-  windowMs: 10000,  // 10 segundos
-  maxMessages: 5    // máximo 5 mensagens por janela
+  windowMs: 10000,
+  maxMessages: 5
 };
 
 function addChatMessage(name, message) {
@@ -353,15 +414,6 @@ function addChatMessage(name, message) {
     chatHistory.shift();
   }
   return msg;
-}
-
-function broadcastChat(data, excludeWs = null) {
-  const msg = JSON.stringify(data);
-  clients.forEach(ws => {
-    if (ws !== excludeWs && ws.readyState === WebSocket.OPEN) {
-      ws.send(msg);
-    }
-  });
 }
 
 function getOnlineCount() {
@@ -386,28 +438,28 @@ function checkRateLimit(ws) {
   return true;
 }
 
-// ================= WEBSOCKET COM VALIDAÇÃO DE ORIGEM =================
+// ================= WEBSOCKET COM HEARTBEAT E CLEANUP =================
 const clients = new Set();
 
 wss.on('connection', (ws, req) => {
-  // Validação básica de origem
-  const origin = req.headers.origin;
-  if (NODE_ENV === 'production' && origin !== 'https://radioamigosdoseuze.com.br') {
-    ws.close(1008, 'Origem não autorizada');
-    return;
-  }
+  // Inicializar heartbeat
+  ws.isAlive = true;
+
+  ws.on('pong', () => {
+    ws.isAlive = true;
+  });
 
   clients.add(ws);
   log('info', `Cliente WebSocket conectado. Total: ${clients.size}`);
 
   // Enviar estado atual
   const track = getCurrentTrack();
-  ws.send(JSON.stringify({
+  safeWsSend(ws, {
     type: 'metadata',
     data: track || { title: 'Iniciando...', artist: 'Ponto de Umbanda', file: '' }
-  }));
+  });
 
-  ws.send(JSON.stringify({
+  safeWsSend(ws, {
     type: 'state',
     data: {
       listeners: streamClients,
@@ -415,14 +467,13 @@ wss.on('connection', (ws, req) => {
       isLive: true,
       uptime: process.uptime()
     }
-  }));
+  });
 
-  // Enviar histórico do chat
   if (chatHistory.length > 0) {
-    ws.send(JSON.stringify({
+    safeWsSend(ws, {
       type: 'chat_history',
       data: chatHistory.slice(-30)
-    }));
+    });
   }
 
   broadcastChat({ type: 'online_count', count: getOnlineCount() });
@@ -432,11 +483,10 @@ wss.on('connection', (ws, req) => {
       const data = JSON.parse(message);
 
       if (data.type === 'ping') {
-        ws.send(JSON.stringify({ type: 'pong', time: Date.now() }));
+        safeWsSend(ws, { type: 'pong', time: Date.now() });
         return;
       }
 
-      // ===== CHAT =====
       if (data.type === 'chat' && data.name && data.message) {
         const name = String(data.name).trim().substring(0, 20);
         const msgText = String(data.message).trim().substring(0, 200);
@@ -444,10 +494,10 @@ wss.on('connection', (ws, req) => {
           chatUsers.set(ws, chatUsers.get(ws) || { name, joinedAt: Date.now() });
 
           if (!checkRateLimit(ws)) {
-            ws.send(JSON.stringify({
+            safeWsSend(ws, {
               type: 'system',
               message: '⚠️ Muitas mensagens. Aguarde um pouco.'
-            }));
+            });
             return;
           }
 
@@ -471,7 +521,7 @@ wss.on('connection', (ws, req) => {
     }
   });
 
-  ws.on('close', () => {
+  ws.on('close', (code, reason) => {
     const userInfo = chatUsers.get(ws);
     clients.delete(ws);
     chatUsers.delete(ws);
@@ -481,7 +531,7 @@ wss.on('connection', (ws, req) => {
     }
     broadcastChat({ type: 'online_count', count: getOnlineCount() });
 
-    log('info', `Cliente desconectado. Total: ${clients.size}`);
+    log('info', `Cliente desconectado (code: ${code}, reason: ${reason?.toString() || 'n/a'}). Total: ${clients.size}`);
   });
 
   ws.on('error', (err) => {
@@ -490,6 +540,37 @@ wss.on('connection', (ws, req) => {
     chatUsers.delete(ws);
   });
 });
+
+// ================= HEARTBEAT: LIMPA CONEXÕES ZUMBIS =================
+const heartbeatInterval = setInterval(() => {
+  const deadClients = [];
+  clients.forEach(ws => {
+    if (ws.isAlive === false) {
+      deadClients.push(ws);
+      return;
+    }
+    ws.isAlive = false;
+    try {
+      ws.ping();
+    } catch (err) {
+      deadClients.push(ws);
+    }
+  });
+
+  // Fechar e remover zumbis
+  deadClients.forEach(ws => {
+    log('warn', 'Removendo WebSocket zumbi (não respondeu pong)');
+    clients.delete(ws);
+    chatUsers.delete(ws);
+    try {
+      ws.terminate();
+    } catch (e) {}
+  });
+
+  if (deadClients.length > 0) {
+    broadcastChat({ type: 'online_count', count: getOnlineCount() });
+  }
+}, HEARTBEAT_INTERVAL);
 
 // ================= API ROUTES =================
 app.get('/api/playlist', (req, res) => {
@@ -516,9 +597,8 @@ app.get('/api/status', (req, res) => {
   });
 });
 
-// ================= STREAM (RÁDIO AO VIVO - TODOS SINCRONIZADOS) =================
+// ================= STREAM (RÁDIO AO VIVO) =================
 app.get('/stream', (req, res) => {
-  // Verificar playlist ANTES de setar headers de áudio
   if (PLAYLIST.length === 0) {
     return res.status(404).json({ error: 'Nenhuma música disponível' });
   }
@@ -531,29 +611,22 @@ app.get('/stream', (req, res) => {
   res.setHeader('icy-name', 'Rádio Amigos do Seu Zé');
   res.setHeader('icy-genre', 'Ponto de Umbanda');
 
-  // Adicionar este response ao conjunto de streams ativos
   activeResponses.add(res);
   streamClients = activeResponses.size;
   broadcastState();
 
   log('info', `🎧 Cliente conectado ao stream. Total ouvintes: ${streamClients}`);
 
-  // Se a rádio ainda não está tocando, inicia
   if (!isPlaying) {
     startRadioStream();
   }
-  // NOTA: NÃO enviamos a música atual do início. O cliente começa a receber
-  // o broadcastStream em tempo real, no ponto exato em que a música está.
-  // Isso é o comportamento correto de uma rádio ao vivo.
 
-  // Quando o cliente desconectar
   req.on('close', () => {
     activeResponses.delete(res);
     streamClients = activeResponses.size;
     broadcastState();
     log('info', `🎧 Cliente desconectou do stream. Ouvintes: ${streamClients}`);
 
-    // Se não houver mais ouvintes, para a rádio após 30s
     if (streamClients === 0) {
       setTimeout(() => {
         if (activeResponses.size === 0 && isPlaying) {
@@ -576,7 +649,6 @@ app.get('/stream', (req, res) => {
   });
 });
 
-// ================= STREAM INFO =================
 app.get('/api/stream', (req, res) => {
   const track = getCurrentTrack();
   res.json({
@@ -587,7 +659,6 @@ app.get('/api/stream', (req, res) => {
   });
 });
 
-// ================= HEALTH CHECK =================
 app.get('/api/health', (req, res) => {
   const track = getCurrentTrack();
   const elapsed = trackStartTime > 0 ? Math.floor((Date.now() - trackStartTime) / 1000) : 0;
@@ -606,43 +677,31 @@ app.get('/api/health', (req, res) => {
 });
 
 // ================= LOOPS =================
-// Envia estado periodicamente
 setInterval(() => {
   broadcastState();
 }, 10000);
-
-// Ping WebSocket para manter conexão viva
-setInterval(() => {
-  clients.forEach(ws => {
-    if (ws.readyState === WebSocket.OPEN) {
-      ws.ping();
-    }
-  });
-}, 25000);
 
 // ================= GRACEFUL SHUTDOWN =================
 function gracefulShutdown(signal) {
   log('info', `Recebido ${signal}. Encerrando graciosamente...`);
 
-  // Parar o stream
+  clearInterval(heartbeatInterval);
   stopRadioStream();
 
-  // Fechar todas as conexões WebSocket
   clients.forEach(ws => {
-    ws.close(1001, 'Servidor reiniciando');
+    try {
+      ws.close(1001, 'Servidor reiniciando');
+    } catch (e) {}
   });
 
-  // Fechar o servidor HTTP
   server.close(() => {
     log('info', 'Servidor HTTP fechado');
-    // Flush logs restantes
     if (logQueue.length > 0) {
       fs.appendFileSync(path.join(LOG_DIR, 'server.log'), logQueue.join(''));
     }
     process.exit(0);
   });
 
-  // Forçar saída após 10s se travar
   setTimeout(() => {
     console.error('Forçando encerramento após timeout');
     process.exit(1);
