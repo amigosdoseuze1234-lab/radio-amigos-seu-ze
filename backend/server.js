@@ -121,24 +121,23 @@ async function loadPlaylist() {
   console.log(`✓ ${PLAYLIST.length} músicas carregadas.`);
 }
 
-// ================= STREAMING =================
+// ================= STREAMING - ARQUITETURA GLOBAL STREAM =================
+// SOLUÇÃO: Um único masterStream (PassThrough) que NUNCA morre.
+// Cada track spawna um ffmpeg que escreve no masterStream.
+// Clientes HTTP leem do masterStream.
+// Quando um ffmpeg termina, o próximo começa a escrever no mesmo masterStream.
+
 let currentTrackIndex = 0;
-let currentTrack = null;
 let isPlaying = false;
 let ffmpegProcess = null;
-let masterStream = null;
+let masterStream = null;         // Stream global que nunca morre
 let streamClients = 0;
-let activeResponses = new Set();
+let activeResponses = new Set(); // Clientes HTTP conectados
 let trackStartTime = 0;
 let currentTrackDuration = 0;
 let trackTimeout = null;
 let isTransitioning = false;
-let transitionLock = false;
-let trackBuffer = [];
-let maxBufferSize = 500;
-let trackBufferSize = 0;
 
-// ================= FUNÇÕES DE PLAYLIST =================
 function getNextTrack() {
   if (PLAYLIST.length === 0) return null;
   const track = PLAYLIST[currentTrackIndex];
@@ -147,10 +146,12 @@ function getNextTrack() {
 }
 
 function getCurrentTrack() {
-  return currentTrack;
+  if (PLAYLIST.length === 0) return null;
+  const idx = (currentTrackIndex - 1 + PLAYLIST.length) % PLAYLIST.length;
+  return PLAYLIST[idx];
 }
 
-// ================= BROADCAST =================
+// ================= BROADCAST SEGURO =================
 const clients = new Set();
 
 function safeWsSend(ws, data) {
@@ -164,15 +165,18 @@ function safeWsSend(ws, data) {
 function broadcast(data) {
   const msg = JSON.stringify(data);
   clients.forEach(ws => {
-    safeWsSend(ws, msg);
+    try {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(msg);
+      }
+    } catch (err) {}
   });
 }
 
 function broadcastMetadata(track) {
-  if (!track) return;
   broadcast({
     type: 'metadata',
-    {
+    data: {
       title: track.title,
       artist: track.artist,
       file: track.file
@@ -184,7 +188,7 @@ function broadcastState() {
   const track = getCurrentTrack();
   broadcast({
     type: 'state',
-    {
+    data: {
       listeners: streamClients,
       currentTrack: track || { title: 'Nenhuma música', artist: 'Ponto de Umbanda', file: '' },
       isLive: true,
@@ -193,35 +197,15 @@ function broadcastState() {
   });
 }
 
-// ================= SISTEMA DE BUFFER =================
-function addToBuffer(chunk) {
-  trackBuffer.push(chunk);
-  trackBufferSize += chunk.length;
+// ================= SISTEMA DE STREAMING CORRIGIDO =================
 
-  while (trackBuffer.length > maxBufferSize && trackBuffer.length > 10) {
-    const removed = trackBuffer.shift();
-    trackBufferSize -= removed.length;
-  }
-}
-
-function getBufferSnapshot() {
-  return Buffer.concat(trackBuffer);
-}
-
-// ================= STREAMING =================
 function initMasterStream() {
-  if (masterStream) {
-    masterStream.removeAllListeners();
-    masterStream.destroy();
-  }
+  if (masterStream) return;
 
   masterStream = new PassThrough();
-  trackBuffer = [];
-  trackBufferSize = 0;
 
+  // Quando o masterStream recebe dados, distribui para todos os clientes HTTP
   masterStream.on('data', (chunk) => {
-    addToBuffer(chunk);
-
     const deadResponses = [];
     activeResponses.forEach(res => {
       if (res.destroyed || res.writableEnded || res.writableFinished) {
@@ -240,7 +224,7 @@ function initMasterStream() {
 
     deadResponses.forEach(res => {
       activeResponses.delete(res);
-      res.end();
+      try { res.end(); } catch (e) {}
     });
 
     if (deadResponses.length > 0) {
@@ -251,10 +235,9 @@ function initMasterStream() {
 
   masterStream.on('error', (err) => {
     log('error', `Erro no masterStream: ${err.message}`);
-  });
-
-  masterStream.on('end', () => {
-    log('info', 'MasterStream encerrou');
+    // Recria o masterStream se der erro crítico
+    masterStream = null;
+    initMasterStream();
   });
 
   log('info', 'MasterStream inicializado');
@@ -266,15 +249,20 @@ function cleanupFfmpeg() {
     ffmpegProcess = null;
 
     try {
+      oldProcess.stdout.removeAllListeners('data');
+      oldProcess.stdout.removeAllListeners('error');
+      oldProcess.stderr.removeAllListeners('data');
+      oldProcess.removeAllListeners('error');
+      oldProcess.removeAllListeners('close');
       oldProcess.kill('SIGTERM');
-      log('info', `FFmpeg PID ${oldProcess.pid} recebeu SIGTERM`);
     } catch (e) {}
 
     setTimeout(() => {
-      if (!oldProcess.killed) {
-        oldProcess.kill('SIGKILL');
-        log('warn', `FFmpeg PID ${oldProcess.pid} forçado com SIGKILL`);
-      }
+      try {
+        if (!oldProcess.killed) {
+          oldProcess.kill('SIGKILL');
+        }
+      } catch (e) {}
     }, 3000);
   }
 
@@ -295,42 +283,25 @@ function startRadioStream() {
   }
 
   isPlaying = true;
+  initMasterStream();
   log('info', '🎵 Iniciando streaming da rádio...');
   playNextTrack();
 }
 
 function stopRadioStream() {
   isPlaying = false;
-  currentTrack = null;
   cleanupFfmpeg();
-
-  if (masterStream) {
-    masterStream.end();
-    masterStream = null;
-  }
-
-  trackBuffer = [];
-  trackBufferSize = 0;
   log('info', '⏹ Rádio parada');
 }
 
-// ================= FUNÇÃO PRINCIPAL =================
 function playNextTrack() {
-  if (!isPlaying) {
-    log('warn', 'playNextTrack chamado mas isPlaying=false');
-    return;
-  }
-
-  if (transitionLock) {
+  if (!isPlaying) return;
+  if (isTransitioning) {
     log('warn', 'Transição já em andamento, ignorando');
     return;
   }
 
-  transitionLock = true;
   isTransitioning = true;
-
-  log('info', '=== INICIANDO TRANSIÇÃO DE MÚSICA ===');
-
   cleanupFfmpeg();
 
   const track = getNextTrack();
@@ -338,19 +309,15 @@ function playNextTrack() {
     log('error', 'Nenhuma música para tocar');
     isPlaying = false;
     isTransitioning = false;
-    transitionLock = false;
     return;
   }
 
   if (!fs.existsSync(track.path)) {
     log('error', `Arquivo não encontrado: ${track.path}`);
     isTransitioning = false;
-    transitionLock = false;
     setTimeout(() => playNextTrack(), 1000);
     return;
   }
-
-  currentTrack = track;
 
   log('info', `▶ Tocando: ${track.title} (${track.duration}s)`);
   broadcastMetadata(track);
@@ -359,7 +326,10 @@ function playNextTrack() {
   trackStartTime = Date.now();
   currentTrackDuration = track.duration * 1000;
 
-  initMasterStream();
+  // Garante que masterStream existe
+  if (!masterStream) {
+    initMasterStream();
+  }
 
   const ffmpegPath = process.env.FFMPEG_PATH || 'ffmpeg';
 
@@ -378,61 +348,94 @@ function playNextTrack() {
     stdio: ['ignore', 'pipe', 'pipe']
   });
 
-  ffmpegProcess.stdout.pipe(masterStream, { end: true });
+  // ================= CORREÇÃO CRÍTICA: FFmpeg → MasterStream =================
+  // O ffmpeg escreve DIRETAMENTE no masterStream
+  // Quando o ffmpeg termina, o masterStream CONTINUA VIVO
+  // O próximo ffmpeg escreve no mesmo masterStream
+  ffmpegProcess.stdout.pipe(masterStream, { end: false });
+
+  // IMPORTANTE: Não adicionar listeners no stdout aqui para evitar duplicação
+  // O masterStream já tem o listener 'data' que distribui para os clientes
+
+  ffmpegProcess.stdout.on('error', (err) => {
+    log('error', `Erro no stdout do ffmpeg: ${err.message}`);
+  });
+
+  ffmpegProcess.stderr.on('data', (data) => {
+    // Silenciar logs do ffmpeg
+  });
 
   ffmpegProcess.on('error', (err) => {
     log('error', `Erro ao iniciar ffmpeg: ${err.message}`);
     if (isPlaying) {
       isTransitioning = false;
-      transitionLock = false;
       setTimeout(() => playNextTrack(), 2000);
     }
   });
 
+  // ================= EVENTO CLOSE DO FFMPEG =================
   ffmpegProcess.on('close', (code, signal) => {
-    log('info', `FFmpeg PID ${ffmpegProcess.pid} encerrou (código: ${code}, sinal: ${signal})`);
+    log('info', `FFmpeg encerrou (código: ${code}, sinal: ${signal})`);
 
     if (!isPlaying) {
-      log('info', 'Rádio parada, não avançando');
       isTransitioning = false;
-      transitionLock = false;
       return;
     }
 
+    // Se foi encerrado por sinal (cleanup manual), não avança
+    if (signal) {
+      log('info', `FFmpeg encerrou por sinal ${signal}, não avançando`);
+      isTransitioning = false;
+      return;
+    }
+
+    // Se encerrou com erro
     if (code !== 0 && code !== null) {
       log('warn', `FFmpeg erro ${code}, tentando próxima em 2s`);
       isTransitioning = false;
-      transitionLock = false;
       setTimeout(() => playNextTrack(), 2000);
       return;
     }
 
+    // Verifica se a música realmente terminou
+    const elapsed = Date.now() - trackStartTime;
+    const minElapsed = Math.max(currentTrackDuration * 0.5, 3000);
+
+    if (elapsed < minElapsed) {
+      log('warn', `FFmpeg encerrou cedo (${elapsed}ms < ${minElapsed}ms), retry em 2s`);
+      isTransitioning = false;
+      setTimeout(() => playNextTrack(), 2000);
+      return;
+    }
+
+    // Música terminou normalmente → avança para próxima
     log('info', `✅ ${track.title} terminou. Avançando...`);
     isTransitioning = false;
-    transitionLock = false;
 
-    setTimeout(() => {
-      if (isPlaying) {
-        playNextTrack();
-      }
-    }, 500);
+    // Delay curto para evitar glitches
+    setTimeout(() => playNextTrack(), 500);
   });
 
+  // Timeout de segurança
   trackTimeout = setTimeout(() => {
     if (!isPlaying) return;
 
     const elapsed = Date.now() - trackStartTime;
 
     if (elapsed > currentTrackDuration + 30000) {
-      log('warn', `⏭ Timeout: ${track.title} (${elapsed}ms > ${currentTrackDuration + 30000}ms)`);
+      log('warn', `⏭ Timeout: ${track.title} (${elapsed}ms)`);
       isTransitioning = false;
-      transitionLock = false;
       cleanupFfmpeg();
       if (isPlaying) {
         setTimeout(() => playNextTrack(), 500);
       }
     }
   }, currentTrackDuration + 35000);
+
+  // Libera flag após setup
+  setTimeout(() => {
+    isTransitioning = false;
+  }, 500);
 }
 
 // ================= CHAT =================
@@ -488,12 +491,12 @@ wss.on('connection', (ws) => {
   const track = getCurrentTrack();
   safeWsSend(ws, {
     type: 'metadata',
-    track || { title: 'Iniciando...', artist: 'Ponto de Umbanda', file: '' }
+    data: track || { title: 'Iniciando...', artist: 'Ponto de Umbanda', file: '' }
   });
 
   safeWsSend(ws, {
     type: 'state',
-    {
+    data: {
       listeners: streamClients,
       currentTrack: track || { title: 'Iniciando...', artist: 'Ponto de Umbanda' },
       isLive: true,
@@ -504,7 +507,7 @@ wss.on('connection', (ws) => {
   if (chatHistory.length > 0) {
     safeWsSend(ws, {
       type: 'chat_history',
-      chatHistory.slice(-30)
+      data: chatHistory.slice(-30)
     });
   }
 
@@ -625,7 +628,7 @@ app.get('/api/history', (req, res) => {
   res.json(chatHistory.slice(0, 30));
 });
 
-// ================= STREAM =================
+// ================= STREAM (RÁDIO AO VIVO) - CORREÇÃO CRÍTICA =================
 app.get('/stream', (req, res) => {
   if (PLAYLIST.length === 0) {
     return res.status(404).json({ error: 'Nenhuma música disponível' });
@@ -652,17 +655,12 @@ app.get('/stream', (req, res) => {
 
   log('info', `🎧 Cliente conectado ao stream. Total ouvintes: ${streamClients}`);
 
-  if (masterStream && trackBuffer.length > 0) {
-    try {
-      const snapshot = getBufferSnapshot();
-      const recentData = snapshot.slice(-512000);
-      res.write(recentData);
-      log('info', `Enviados ${recentData.length} bytes de buffer para novo cliente`);
-    } catch (e) {
-      log('warn', `Erro ao enviar buffer: ${e.message}`);
-    }
+  // Inicializa masterStream se necessário
+  if (!masterStream) {
+    initMasterStream();
   }
 
+  // Inicia a rádio se não estiver tocando
   if (!isPlaying) {
     startRadioStream();
   }
@@ -710,9 +708,7 @@ app.get('/api/health', (req, res) => {
     isPlaying: isPlaying,
     streaming: isPlaying,
     elapsed: elapsed,
-    duration: track ? track.duration : 0,
-    transitioning: isTransitioning,
-    transitionLocked: transitionLock
+    duration: track ? track.duration : 0
   });
 });
 
@@ -743,6 +739,11 @@ function gracefulShutdown(signal) {
 
   stopRadioStream();
 
+  if (masterStream) {
+    try { masterStream.end(); } catch (e) {}
+    masterStream = null;
+  }
+
   clients.forEach(ws => {
     try { ws.close(1001, 'Servidor reiniciando'); } catch (e) {}
   });
@@ -765,11 +766,13 @@ function gracefulShutdown(signal) {
 
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
 process.on('uncaughtException', (err) => {
   log('error', `UNCAUGHT EXCEPTION: ${err.message}`);
   log('error', err.stack);
   gracefulShutdown('uncaughtException');
 });
+
 process.on('unhandledRejection', (reason, promise) => {
   log('error', `UNHANDLED REJECTION: ${reason}`);
 });
