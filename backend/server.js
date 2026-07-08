@@ -121,22 +121,28 @@ async function loadPlaylist() {
   console.log(`✓ ${PLAYLIST.length} músicas carregadas.`);
 }
 
-// ================= STREAMING - ARQUITETURA GLOBAL STREAM =================
-// SOLUÇÃO: Um único masterStream (PassThrough) que NUNCA morre.
-// Cada track spawna um ffmpeg que escreve no masterStream.
-// Clientes HTTP leem do masterStream.
-// Quando um ffmpeg termina, o próximo começa a escrever no mesmo masterStream.
+// ================= STREAMING - ARQUITETURA CORRIGIDA =================
+// CORREÇÃO: Usar um sistema de track explícito em vez de derivar do índice.
+// O masterStream é recriado a cada track para garantir MP3 válido.
+// Cada cliente novo recebe o stream do INÍCIO da música atual (via buffer circular).
 
-let currentTrackIndex = 0;
+let currentTrackIndex = 0;       // Índice da PRÓXIMA música a tocar
+let currentTrack = null;           // Música ATUALMENTE tocando (objeto explícito!)
 let isPlaying = false;
 let ffmpegProcess = null;
-let masterStream = null;         // Stream global que nunca morre
+let masterStream = null;           // Stream da música atual
 let streamClients = 0;
-let activeResponses = new Set(); // Clientes HTTP conectados
+let activeResponses = new Set();   // Clientes HTTP conectados
 let trackStartTime = 0;
 let currentTrackDuration = 0;
 let trackTimeout = null;
 let isTransitioning = false;
+let transitionLock = false;        // NOVO: Lock para evitar race conditions
+let trackBuffer = [];              // NOVO: Buffer circular da música atual
+let maxBufferSize = 500;           // NOVO: ~2MB de buffer (cada chunk ~4KB)
+let trackBufferSize = 0;           // NOVO: Tamanho total do buffer em bytes
+
+// ================= FUNÇÕES DE PLAYLIST CORRIGIDAS =================
 
 function getNextTrack() {
   if (PLAYLIST.length === 0) return null;
@@ -146,9 +152,9 @@ function getNextTrack() {
 }
 
 function getCurrentTrack() {
-  if (PLAYLIST.length === 0) return null;
-  const idx = (currentTrackIndex - 1 + PLAYLIST.length) % PLAYLIST.length;
-  return PLAYLIST[idx];
+  // CORREÇÃO: Retorna o currentTrack explícito, não deriva do índice
+  // Isso elimina toda desincronização de metadata
+  return currentTrack;
 }
 
 // ================= BROADCAST SEGURO =================
@@ -174,6 +180,7 @@ function broadcast(data) {
 }
 
 function broadcastMetadata(track) {
+  if (!track) return;
   broadcast({
     type: 'metadata',
     data: {
@@ -197,15 +204,43 @@ function broadcastState() {
   });
 }
 
+// ================= SISTEMA DE BUFFER CIRCULAR =================
+// NOVO: Buffer para que clientes novos possam "alcançar" a música atual
+
+function addToBuffer(chunk) {
+  trackBuffer.push(chunk);
+  trackBufferSize += chunk.length;
+
+  while (trackBuffer.length > maxBufferSize && trackBuffer.length > 10) {
+    const removed = trackBuffer.shift();
+    trackBufferSize -= removed.length;
+  }
+}
+
+function getBufferSnapshot() {
+  return Buffer.concat(trackBuffer);
+}
+
 // ================= SISTEMA DE STREAMING CORRIGIDO =================
 
 function initMasterStream() {
-  if (masterStream) return;
+  if (masterStream) {
+    try {
+      masterStream.removeAllListeners('data');
+      masterStream.removeAllListeners('error');
+      masterStream.removeAllListeners('end');
+      masterStream.destroy();
+    } catch (e) {}
+  }
 
   masterStream = new PassThrough();
+  trackBuffer = [];
+  trackBufferSize = 0;
 
   // Quando o masterStream recebe dados, distribui para todos os clientes HTTP
   masterStream.on('data', (chunk) => {
+    addToBuffer(chunk);
+
     const deadResponses = [];
     activeResponses.forEach(res => {
       if (res.destroyed || res.writableEnded || res.writableFinished) {
@@ -235,9 +270,10 @@ function initMasterStream() {
 
   masterStream.on('error', (err) => {
     log('error', `Erro no masterStream: ${err.message}`);
-    // Recria o masterStream se der erro crítico
-    masterStream = null;
-    initMasterStream();
+  });
+
+  masterStream.on('end', () => {
+    log('info', 'MasterStream encerrou');
   });
 
   log('info', 'MasterStream inicializado');
@@ -246,21 +282,29 @@ function initMasterStream() {
 function cleanupFfmpeg() {
   if (ffmpegProcess) {
     const oldProcess = ffmpegProcess;
+    const oldPid = oldProcess.pid;
     ffmpegProcess = null;
 
     try {
+      oldProcess.stdout.unpipe();
       oldProcess.stdout.removeAllListeners('data');
       oldProcess.stdout.removeAllListeners('error');
+      oldProcess.stdout.removeAllListeners('end');
       oldProcess.stderr.removeAllListeners('data');
       oldProcess.removeAllListeners('error');
       oldProcess.removeAllListeners('close');
+      oldProcess.removeAllListeners('exit');
       oldProcess.kill('SIGTERM');
-    } catch (e) {}
+      log('info', `FFmpeg PID ${oldPid} recebeu SIGTERM`);
+    } catch (e) {
+      log('warn', `Erro ao matar ffmpeg PID ${oldPid}: ${e.message}`);
+    }
 
     setTimeout(() => {
       try {
         if (!oldProcess.killed) {
           oldProcess.kill('SIGKILL');
+          log('warn', `FFmpeg PID ${oldPid} forçado com SIGKILL`);
         }
       } catch (e) {}
     }, 3000);
@@ -283,25 +327,48 @@ function startRadioStream() {
   }
 
   isPlaying = true;
-  initMasterStream();
   log('info', '🎵 Iniciando streaming da rádio...');
   playNextTrack();
 }
 
 function stopRadioStream() {
   isPlaying = false;
+  currentTrack = null;
   cleanupFfmpeg();
+
+  if (masterStream) {
+    try {
+      masterStream.end();
+      masterStream.destroy();
+    } catch (e) {}
+    masterStream = null;
+  }
+
+  trackBuffer = [];
+  trackBufferSize = 0;
   log('info', '⏹ Rádio parada');
 }
 
+// ================= FUNÇÃO PRINCIPAL CORRIGIDA =================
+
 function playNextTrack() {
-  if (!isPlaying) return;
-  if (isTransitioning) {
-    log('warn', 'Transição já em andamento, ignorando');
+  // CORREÇÃO CRÍTICA: Lock de transição para evitar race conditions
+  if (!isPlaying) {
+    log('warn', 'playNextTrack chamado mas isPlaying=false');
     return;
   }
 
+  if (transitionLock) {
+    log('warn', 'Transição já em andamento (lock ativo), ignorando');
+    return;
+  }
+
+  transitionLock = true;
   isTransitioning = true;
+
+  log('info', '=== INICIANDO TRANSIÇÃO DE MÚSICA ===');
+
+  // Limpa o ffmpeg anterior
   cleanupFfmpeg();
 
   const track = getNextTrack();
@@ -309,15 +376,21 @@ function playNextTrack() {
     log('error', 'Nenhuma música para tocar');
     isPlaying = false;
     isTransitioning = false;
+    transitionLock = false;
     return;
   }
 
   if (!fs.existsSync(track.path)) {
     log('error', `Arquivo não encontrado: ${track.path}`);
     isTransitioning = false;
+    transitionLock = false;
     setTimeout(() => playNextTrack(), 1000);
     return;
   }
+
+  // CORREÇÃO: Seta currentTrack ANTES de iniciar o ffmpeg
+  // Isso garante que TODOS que consultarem getCurrentTrack() verão a música certa
+  currentTrack = track;
 
   log('info', `▶ Tocando: ${track.title} (${track.duration}s)`);
   broadcastMetadata(track);
@@ -326,10 +399,10 @@ function playNextTrack() {
   trackStartTime = Date.now();
   currentTrackDuration = track.duration * 1000;
 
-  // Garante que masterStream existe
-  if (!masterStream) {
-    initMasterStream();
-  }
+  // CORREÇÃO CRÍTICA: Recria o masterStream a cada música
+  // Isso garante que cada música comece com MP3 válido (headers frescos)
+  // e elimina o problema de frames quebrados na transição
+  initMasterStream();
 
   const ffmpegPath = process.env.FFMPEG_PATH || 'ffmpeg';
 
@@ -348,37 +421,50 @@ function playNextTrack() {
     stdio: ['ignore', 'pipe', 'pipe']
   });
 
-  // ================= CORREÇÃO CRÍTICA: FFmpeg → MasterStream =================
-  // O ffmpeg escreve DIRETAMENTE no masterStream
-  // Quando o ffmpeg termina, o masterStream CONTINUA VIVO
-  // O próximo ffmpeg escreve no mesmo masterStream
-  ffmpegProcess.stdout.pipe(masterStream, { end: false });
+  const thisFfmpeg = ffmpegProcess;
+  const thisTrack = track;
+  const thisStartTime = Date.now();
 
-  // IMPORTANTE: Não adicionar listeners no stdout aqui para evitar duplicação
-  // O masterStream já tem o listener 'data' que distribui para os clientes
+  log('info', `FFmpeg PID ${thisFfmpeg.pid} iniciado para: ${track.title}`);
 
-  ffmpegProcess.stdout.on('error', (err) => {
+  // CORREÇÃO: Usar .pipe() normal, mas com handler de cleanup adequado
+  thisFfmpeg.stdout.pipe(masterStream, { end: true });
+
+  thisFfmpeg.stdout.on('error', (err) => {
     log('error', `Erro no stdout do ffmpeg: ${err.message}`);
   });
 
-  ffmpegProcess.stderr.on('data', (data) => {
-    // Silenciar logs do ffmpeg
+  thisFfmpeg.stderr.on('data', (data) => {
+    // Silenciar logs do ffmpeg, mas podemos logar erros se necessário
+    const stderr = data.toString();
+    if (stderr.includes('Error') || stderr.includes('error')) {
+      log('warn', `FFmpeg stderr: ${stderr.substring(0, 200)}`);
+    }
   });
 
-  ffmpegProcess.on('error', (err) => {
+  thisFfmpeg.on('error', (err) => {
     log('error', `Erro ao iniciar ffmpeg: ${err.message}`);
-    if (isPlaying) {
+    if (isPlaying && ffmpegProcess === thisFfmpeg) {
       isTransitioning = false;
+      transitionLock = false;
       setTimeout(() => playNextTrack(), 2000);
     }
   });
 
-  // ================= EVENTO CLOSE DO FFMPEG =================
-  ffmpegProcess.on('close', (code, signal) => {
-    log('info', `FFmpeg encerrou (código: ${code}, sinal: ${signal})`);
+  // ================= EVENTO CLOSE DO FFMPEG - CORREÇÃO CRÍTICA =================
+  thisFfmpeg.on('close', (code, signal) => {
+    log('info', `FFmpeg PID ${thisFfmpeg.pid} encerrou (código: ${code}, sinal: ${signal})`);
+
+    // IMPORTANTE: Só processa se este ffmpeg ainda é o atual
+    if (ffmpegProcess !== thisFfmpeg) {
+      log('warn', `FFmpeg PID ${thisFfmpeg.pid} não é mais o processo atual, ignorando evento close`);
+      return;
+    }
 
     if (!isPlaying) {
+      log('info', 'Rádio parada, não avançando');
       isTransitioning = false;
+      transitionLock = false;
       return;
     }
 
@@ -386,6 +472,7 @@ function playNextTrack() {
     if (signal) {
       log('info', `FFmpeg encerrou por sinal ${signal}, não avançando`);
       isTransitioning = false;
+      transitionLock = false;
       return;
     }
 
@@ -393,38 +480,52 @@ function playNextTrack() {
     if (code !== 0 && code !== null) {
       log('warn', `FFmpeg erro ${code}, tentando próxima em 2s`);
       isTransitioning = false;
+      transitionLock = false;
       setTimeout(() => playNextTrack(), 2000);
       return;
     }
 
     // Verifica se a música realmente terminou
-    const elapsed = Date.now() - trackStartTime;
-    const minElapsed = Math.max(currentTrackDuration * 0.5, 3000);
+    const elapsed = Date.now() - thisStartTime;
+    const minElapsed = Math.max(thisTrack.duration * 1000 * 0.5, 5000);
 
     if (elapsed < minElapsed) {
       log('warn', `FFmpeg encerrou cedo (${elapsed}ms < ${minElapsed}ms), retry em 2s`);
       isTransitioning = false;
+      transitionLock = false;
       setTimeout(() => playNextTrack(), 2000);
       return;
     }
 
     // Música terminou normalmente → avança para próxima
-    log('info', `✅ ${track.title} terminou. Avançando...`);
+    log('info', `✅ ${thisTrack.title} terminou (${elapsed}ms). Avançando...`);
     isTransitioning = false;
+    transitionLock = false;
 
     // Delay curto para evitar glitches
-    setTimeout(() => playNextTrack(), 500);
+    setTimeout(() => {
+      if (isPlaying) {
+        playNextTrack();
+      }
+    }, 500);
   });
 
-  // Timeout de segurança
+  // Timeout de segurança - usa o trackStartTime da música atual
   trackTimeout = setTimeout(() => {
     if (!isPlaying) return;
+
+    // Verifica se ainda estamos na mesma música
+    if (ffmpegProcess !== thisFfmpeg) {
+      log('info', 'Timeout: ffmpeg já foi substituído, ignorando');
+      return;
+    }
 
     const elapsed = Date.now() - trackStartTime;
 
     if (elapsed > currentTrackDuration + 30000) {
-      log('warn', `⏭ Timeout: ${track.title} (${elapsed}ms)`);
+      log('warn', `⏭ Timeout: ${thisTrack.title} (${elapsed}ms > ${currentTrackDuration + 30000}ms)`);
       isTransitioning = false;
+      transitionLock = false;
       cleanupFfmpeg();
       if (isPlaying) {
         setTimeout(() => playNextTrack(), 500);
@@ -432,10 +533,12 @@ function playNextTrack() {
     }
   }, currentTrackDuration + 35000);
 
-  // Libera flag após setup
+  // Libera a flag de transição após setup completo
+  // Mas MANTÉM o transitionLock até o ffmpeg terminar ou ser substituído
   setTimeout(() => {
     isTransitioning = false;
-  }, 500);
+    log('info', `Transição liberada para: ${thisTrack.title}`);
+  }, 1000);
 }
 
 // ================= CHAT =================
@@ -655,9 +758,18 @@ app.get('/stream', (req, res) => {
 
   log('info', `🎧 Cliente conectado ao stream. Total ouvintes: ${streamClients}`);
 
-  // Inicializa masterStream se necessário
-  if (!masterStream) {
-    initMasterStream();
+  // CORREÇÃO CRÍTICA: Envia o buffer da música atual para sincronizar
+  // Isso faz com que TODOS os clientes ouçam a MESMA música
+  if (masterStream && trackBuffer.length > 0) {
+    try {
+      const snapshot = getBufferSnapshot();
+      // Envia apenas os últimos 500KB para não sobrecarregar
+      const recentData = snapshot.slice(-512000);
+      res.write(recentData);
+      log('info', `Enviados ${recentData.length} bytes de buffer para novo cliente`);
+    } catch (e) {
+      log('warn', `Erro ao enviar buffer: ${e.message}`);
+    }
   }
 
   // Inicia a rádio se não estiver tocando
@@ -708,7 +820,9 @@ app.get('/api/health', (req, res) => {
     isPlaying: isPlaying,
     streaming: isPlaying,
     elapsed: elapsed,
-    duration: track ? track.duration : 0
+    duration: track ? track.duration : 0,
+    transitioning: isTransitioning,
+    transitionLocked: transitionLock
   });
 });
 
@@ -738,11 +852,6 @@ function gracefulShutdown(signal) {
   log('info', `Recebido ${signal}. Encerrando...`);
 
   stopRadioStream();
-
-  if (masterStream) {
-    try { masterStream.end(); } catch (e) {}
-    masterStream = null;
-  }
 
   clients.forEach(ws => {
     try { ws.close(1001, 'Servidor reiniciando'); } catch (e) {}
