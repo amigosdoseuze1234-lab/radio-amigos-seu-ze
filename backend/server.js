@@ -102,9 +102,11 @@ async function loadPlaylist() {
     const filePath = path.join(AUDIO_DIR, file);
     const meta = await getTrackMetadata(filePath);
     const stats = fs.statSync(filePath);
+
+    // Usar 16000 bytes/s para estimativa (128kbps = 16KB/s)
     const estimatedDuration = meta.duration > 0
       ? meta.duration
-      : Math.ceil(stats.size / 24000);
+      : Math.ceil(stats.size / 16000);
 
     PLAYLIST.push({
       file,
@@ -130,7 +132,8 @@ let activeResponses = new Set();
 let trackStartTime = 0;
 let currentTrackDuration = 0;
 let trackTimeout = null;
-let consecutiveFailures = 0; // 🔧 NOVO: contador de falhas seguidas
+let trackTimeoutCleared = false;
+let isTransitioning = false; // NOVO: evita race conditions na transição
 
 function getNextTrack() {
   if (PLAYLIST.length === 0) return null;
@@ -146,6 +149,8 @@ function getCurrentTrack() {
 }
 
 // ================= BROADCAST SEGURO =================
+const clients = new Set();
+
 function safeWsSend(ws, data) {
   try {
     if (ws.readyState === WebSocket.OPEN) {
@@ -195,8 +200,9 @@ function broadcastState() {
 
 // ================= SISTEMA DE STREAMING =================
 
-// 🔧 NOVO: Limpa recursos do track anterior de forma segura
 function cleanupPreviousTrack() {
+  trackTimeoutCleared = true;
+
   if (trackTimeout) {
     clearTimeout(trackTimeout);
     trackTimeout = null;
@@ -208,9 +214,7 @@ function cleanupPreviousTrack() {
     }
     broadcastStream.removeAllListeners('data');
     broadcastStream.removeAllListeners('error');
-    // 🔧 NÃO damos end() no broadcastStream se ainda tem clientes!
-    // Deixamos ele morrer naturalmente ou só removemos listeners
-    try { broadcastStream.destroy(); } catch (e) {}
+    try { broadcastStream.end(); } catch (e) {}
     broadcastStream = null;
   }
 
@@ -248,40 +252,46 @@ function startRadioStream() {
   }
 
   isPlaying = true;
-  consecutiveFailures = 0; // 🔧 reset
   log('info', '🎵 Iniciando streaming da rádio...');
   playNextTrack();
 }
 
 function stopRadioStream() {
   isPlaying = false;
-  consecutiveFailures = 0; // 🔧 reset
   cleanupPreviousTrack();
   log('info', '⏹ Rádio parada');
 }
 
+// ================= CORREÇÃO PRINCIPAL: playNextTrack =================
+// Agora separado em funções menores e mais robustas
+
 function playNextTrack() {
   if (!isPlaying) return;
+  if (isTransitioning) {
+    log('warn', 'Transição já em andamento, ignorando chamada duplicada');
+    return;
+  }
 
+  isTransitioning = true;
+
+  // Sempre limpa o track anterior antes de iniciar o próximo
   cleanupPreviousTrack();
 
   const track = getNextTrack();
   if (!track) {
     log('error', 'Nenhuma música para tocar');
     isPlaying = false;
+    isTransitioning = false;
     return;
   }
 
   if (!fs.existsSync(track.path)) {
     log('error', `Arquivo não encontrado: ${track.path}`);
-    setTimeout(() => playNextTrack(), 1000);
-    return;
-  }
-
-  // 🔧 NOVO: Verifica se arquivo tem conteúdo
-  if (track.size === 0) {
-    log('error', `Arquivo vazio: ${track.path}`);
-    setTimeout(() => playNextTrack(), 1000);
+    isTransitioning = false;
+    setTimeout(() => {
+      isTransitioning = false;
+      playNextTrack();
+    }, 1000);
     return;
   }
 
@@ -291,6 +301,7 @@ function playNextTrack() {
 
   trackStartTime = Date.now();
   currentTrackDuration = track.duration * 1000;
+  trackTimeoutCleared = false;
 
   broadcastStream = new PassThrough();
 
@@ -311,120 +322,19 @@ function playNextTrack() {
     stdio: ['ignore', 'pipe', 'pipe']
   });
 
-  // 🔧 NOVO: Buffer pra capturar stderr em caso de erro
-  let stderrBuffer = '';
-
-  ffmpegProcess.stdout.pipe(broadcastStream, { end: false });
-
-  ffmpegProcess.stdout.on('error', (err) => {
-    log('error', `Erro no stdout do ffmpeg: ${err.message}`);
-  });
-
-  ffmpegProcess.stderr.on('data', (data) => {
-    // 🔧 CAPTURA stderr pra debug em caso de erro
-    stderrBuffer += data.toString();
-    // Mantém só os últimos 2KB
-    if (stderrBuffer.length > 2048) {
-      stderrBuffer = stderrBuffer.slice(-2048);
-    }
-  });
-
-  ffmpegProcess.on('error', (err) => {
-    log('error', `Erro ao iniciar ffmpeg: ${err.message}`);
-    consecutiveFailures++;
-    if (isPlaying && consecutiveFailures < 3) {
-      setTimeout(() => playNextTrack(), 2000);
-    } else if (consecutiveFailures >= 3) {
-      log('error', `Muitas falhas seguidas (${consecutiveFailures}), pulando música...`);
-      consecutiveFailures = 0;
-      setTimeout(() => playNextTrack(), 1000);
-    }
-  });
-
-  ffmpegProcess.on('close', (code, signal) => {
-    log('info', `FFmpeg encerrou (código: ${code}, sinal: ${signal})`);
-
-    if (!isPlaying) return;
-
-    // Se foi encerrado por sinal (SIGTERM/SIGKILL do cleanup), não avança
-    if (signal) {
-      log('info', `FFmpeg encerrou por sinal ${signal}, não avançando track`);
-      return;
-    }
-
-    // Se encerrou com erro
-    if (code !== 0 && code !== null) {
-      consecutiveFailures++;
-      log('warn', `FFmpeg encerrou com erro ${code} (falha ${consecutiveFailures}/3)`);
-      // 🔧 Loga o stderr pra identificar o problema
-      if (stderrBuffer) {
-        log('error', `FFmpeg stderr: ${stderrBuffer.trim().split('\n').pop()}`);
-      }
-
-      if (consecutiveFailures >= 3) {
-        log('error', 'Muitas falhas seguidas, pulando para próxima música');
-        consecutiveFailures = 0;
-        setTimeout(() => playNextTrack(), 1000);
-        return;
-      }
-
-      setTimeout(() => playNextTrack(), 2000);
-      return;
-    }
-
-    // FFmpeg encerrou com sucesso (code === 0)
-    consecutiveFailures = 0; // 🔧 reset
-
-    // Só avança se a música realmente terminou
-    const elapsed = Date.now() - trackStartTime;
-    const minElapsed = Math.max(currentTrackDuration * 0.7, 5000);
-
-    if (elapsed < minElapsed) {
-      log('warn', `FFmpeg encerrou cedo (${elapsed}ms < ${minElapsed}ms), tentando de novo em 2s`);
-      setTimeout(() => playNextTrack(), 2000);
-      return;
-    }
-
-    // Tudo certo, avança para próxima música
-    setTimeout(() => playNextTrack(), 1000);
-  });
-
-  // Timeout generoso
-  trackTimeout = setTimeout(() => {
-    if (!isPlaying) return;
-
-    const elapsed = Date.now() - trackStartTime;
-
-    if (elapsed > currentTrackDuration + 30000) {
-      log('warn', `⏭ Timeout atingido para ${track.title} (${elapsed}ms > ${currentTrackDuration + 30000}ms)`);
-      cleanupPreviousTrack();
-      if (isPlaying) {
-        setTimeout(() => playNextTrack(), 1000);
-      }
-    } else {
-      log('info', `Timeout cancelado — música ainda dentro do tempo normal`);
-    }
-  }, currentTrackDuration + 35000);
-
-  // 🔧 NOVO: Envia um chunk inicial de silêncio pra "acordar" os players
-  // Alguns players não começam a tocar até receberem dados
-  const silenceChunk = Buffer.alloc(1024, 0);
-  activeResponses.forEach(res => {
-    if (!res.destroyed && !res.writableEnded) {
-      try { res.write(silenceChunk); } catch (e) {}
-    }
-  });
-
-  // Distribuir dados para clientes
+  // ================= HANDLERS DO BROADCAST STREAM =================
   broadcastStream.on('data', (chunk) => {
     const deadResponses = [];
     activeResponses.forEach(res => {
-      if (res.destroyed || res.writableEnded) {
+      if (res.destroyed || res.writableEnded || res.writableFinished) {
         deadResponses.push(res);
         return;
       }
       try {
-        res.write(chunk);
+        const ok = res.write(chunk);
+        if (ok === false) {
+          res.once('drain', () => {});
+        }
       } catch (err) {
         deadResponses.push(res);
       }
@@ -442,6 +352,90 @@ function playNextTrack() {
   broadcastStream.on('error', (err) => {
     log('error', `Erro no broadcast stream: ${err.message}`);
   });
+
+  // ================= HANDLERS DO FFMPEG =================
+  ffmpegProcess.stdout.pipe(broadcastStream, { end: false });
+
+  ffmpegProcess.stdout.on('error', (err) => {
+    log('error', `Erro no stdout do ffmpeg: ${err.message}`);
+  });
+
+  ffmpegProcess.stderr.on('data', () => {
+    // FFmpeg loga no stderr; silenciar
+  });
+
+  ffmpegProcess.on('error', (err) => {
+    log('error', `Erro ao iniciar ffmpeg: ${err.message}`);
+    if (isPlaying) {
+      isTransitioning = false;
+      setTimeout(() => playNextTrack(), 2000);
+    }
+  });
+
+  // ================= CORREÇÃO CRÍTICA: on close do ffmpeg =================
+  ffmpegProcess.on('close', (code, signal) => {
+    log('info', `FFmpeg encerrou (código: ${code}, sinal: ${signal})`);
+
+    if (!isPlaying) {
+      isTransitioning = false;
+      return;
+    }
+
+    // Se foi encerrado por sinal (SIGTERM/SIGKILL), não avança — isso é cleanup
+    if (signal) {
+      log('info', `FFmpeg encerrou por sinal ${signal}, não avançando track`);
+      isTransitioning = false;
+      return;
+    }
+
+    // Se encerrou com erro, tenta de novo
+    if (code !== 0 && code !== null) {
+      log('warn', `FFmpeg encerrou com erro ${code}, tentando próxima música em 2s`);
+      isTransitioning = false;
+      setTimeout(() => playNextTrack(), 2000);
+      return;
+    }
+
+    // FFmpeg terminou normalmente (code=0) — verifica se a música realmente terminou
+    const elapsed = Date.now() - trackStartTime;
+    const minElapsed = Math.max(currentTrackDuration * 0.7, 5000);
+
+    if (elapsed < minElapsed) {
+      log('warn', `FFmpeg encerrou cedo (${elapsed}ms < ${minElapsed}ms), tentando de novo em 2s`);
+      isTransitioning = false;
+      setTimeout(() => playNextTrack(), 2000);
+      return;
+    }
+
+    // Tudo certo, avança para próxima música
+    log('info', `Música ${track.title} terminou normalmente. Avançando...`);
+    isTransitioning = false;
+    setTimeout(() => playNextTrack(), 1000);
+  });
+
+  // ================= TIMEOUT DE SEGURANÇA =================
+  // Timeout mais generoso (duração + 30s)
+  trackTimeout = setTimeout(() => {
+    if (trackTimeoutCleared || !isPlaying) return;
+
+    const elapsed = Date.now() - trackStartTime;
+
+    if (elapsed > currentTrackDuration + 30000) {
+      log('warn', `⏭ Timeout atingido para ${track.title} (${elapsed}ms > ${currentTrackDuration + 30000}ms)`);
+      isTransitioning = false;
+      cleanupPreviousTrack();
+      if (isPlaying) {
+        setTimeout(() => playNextTrack(), 1000);
+      }
+    } else {
+      log('info', `Timeout cancelado — música ainda dentro do tempo normal`);
+    }
+  }, currentTrackDuration + 35000);
+
+  // Libera a flag de transição após setup completo
+  setTimeout(() => {
+    isTransitioning = false;
+  }, 500);
 }
 
 // ================= CHAT =================
@@ -490,8 +484,6 @@ function checkRateLimit(ws) {
 }
 
 // ================= WEBSOCKET =================
-const clients = new Set();
-
 wss.on('connection', (ws) => {
   clients.add(ws);
   log('info', `Cliente WebSocket conectado. Total: ${clients.size}`);
@@ -530,34 +522,52 @@ wss.on('connection', (ws) => {
         return;
       }
 
-      if (data.type === 'chat' && data.name && data.message) {
-        const name = String(data.name).trim().substring(0, 20);
-        const msgText = String(data.message).trim().substring(0, 200);
-        if (name && msgText) {
-          chatUsers.set(ws, chatUsers.get(ws) || { name, joinedAt: Date.now() });
-
-          if (!checkRateLimit(ws)) {
-            safeWsSend(ws, {
-              type: 'system',
-              message: '⚠️ Muitas mensagens. Aguarde um pouco.'
-            });
-            return;
-          }
-
-          const chatMsg = addChatMessage(name, msgText);
-          broadcast(chatMsg);
-          log('info', `Chat: ${name}: ${msgText.substring(0, 50)}`);
-        }
-      }
-
+      // ================= CORREÇÃO CHAT: join_chat ou chat sem prévio join =================
       if (data.type === 'join_chat' && data.name) {
         const name = String(data.name).trim().substring(0, 20);
         if (name) {
-          chatUsers.set(ws, { name, joinedAt: Date.now() });
+          chatUsers.set(ws, { name, joinedAt: Date.now(), messageCount: 0, lastMessageTime: 0 });
+          broadcast({ type: 'system', message: `👋 ${name} entrou no chat` });
+          broadcast({ type: 'online_count', count: getOnlineCount() });
+          log('info', `Chat: ${name} entrou no chat`);
+        }
+        return;
+      }
+
+      if (data.type === 'chat' && data.name && data.message) {
+        const name = String(data.name).trim().substring(0, 20);
+        const msgText = String(data.message).trim().substring(0, 200);
+
+        if (!name || !msgText) {
+          safeWsSend(ws, { type: 'system', message: '⚠️ Nome ou mensagem inválidos.' });
+          return;
+        }
+
+        // CORREÇÃO: Se usuário não está no chatUsers, adiciona automaticamente
+        let user = chatUsers.get(ws);
+        if (!user) {
+          user = { name, joinedAt: Date.now(), messageCount: 0, lastMessageTime: 0 };
+          chatUsers.set(ws, user);
           broadcast({ type: 'system', message: `👋 ${name} entrou no chat` });
           broadcast({ type: 'online_count', count: getOnlineCount() });
         }
+
+        if (!checkRateLimit(ws)) {
+          safeWsSend(ws, {
+            type: 'system',
+            message: '⚠️ Muitas mensagens. Aguarde um pouco.'
+          });
+          return;
+        }
+
+        const chatMsg = addChatMessage(name, msgText);
+        broadcast(chatMsg);
+        log('info', `Chat: ${name}: ${msgText.substring(0, 50)}`);
+        return;
       }
+
+      // Mensagem desconhecida — loga mas ignora
+      log('warn', `Mensagem WS desconhecida: ${data.type}`);
 
     } catch (err) {
       log('error', `WS error: ${err.message}`);
@@ -574,7 +584,7 @@ wss.on('connection', (ws) => {
     }
     broadcast({ type: 'online_count', count: getOnlineCount() });
 
-    log('info', `Cliente desconectado. Total: ${clients.size}`);
+    log('info', `Cliente desconectado. Total WS: ${clients.size}`);
   });
 
   ws.on('error', (err) => {
@@ -584,7 +594,7 @@ wss.on('connection', (ws) => {
   });
 });
 
-// ================= PING WS =================
+// ================= PING WS (heartbeat) =================
 setInterval(() => {
   clients.forEach(ws => {
     if (ws.readyState === WebSocket.OPEN) {
@@ -636,6 +646,14 @@ app.get('/stream', (req, res) => {
   res.setHeader('icy-name', 'Rádio Amigos do Seu Zé');
   res.setHeader('icy-genre', 'Ponto de Umbanda');
 
+  // Handler de erro na resposta
+  const onResError = (err) => {
+    log('error', `Erro na resposta do stream: ${err.message}`);
+    activeResponses.delete(res);
+    streamClients = activeResponses.size;
+  };
+  res.on('error', onResError);
+
   activeResponses.add(res);
   streamClients = activeResponses.size;
   broadcastState();
@@ -646,7 +664,7 @@ app.get('/stream', (req, res) => {
     startRadioStream();
   }
 
-  req.on('close', () => {
+  const onReqClose = () => {
     activeResponses.delete(res);
     streamClients = activeResponses.size;
     broadcastState();
@@ -660,18 +678,10 @@ app.get('/stream', (req, res) => {
         }
       }, 30000);
     }
-  });
+  };
 
-  req.on('error', () => {
-    activeResponses.delete(res);
-    streamClients = activeResponses.size;
-  });
-
-  res.on('error', (err) => {
-    log('error', `Erro no response do stream: ${err.message}`);
-    activeResponses.delete(res);
-    streamClients = activeResponses.size;
-  });
+  req.on('close', onReqClose);
+  req.on('error', onReqClose);
 });
 
 app.get('/api/stream', (req, res) => {
@@ -701,7 +711,24 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// ================= LOOPS =================
+// ================= LIMPEZA PERIÓDICA DE RESPONSES ÓRFÃOS =================
+setInterval(() => {
+  const before = activeResponses.size;
+  const dead = [];
+  activeResponses.forEach(res => {
+    if (res.destroyed || res.writableEnded || res.writableFinished) {
+      dead.push(res);
+    }
+  });
+  dead.forEach(res => activeResponses.delete(res));
+  if (dead.length > 0) {
+    streamClients = activeResponses.size;
+    broadcastState();
+    log('info', `🧹 Limpados ${dead.length} responses órfãos. Ouvintes: ${streamClients} (antes: ${before})`);
+  }
+}, 30000);
+
+// ================= BROADCAST STATE PERIÓDICO =================
 setInterval(() => {
   broadcastState();
 }, 10000);
@@ -716,6 +743,11 @@ function gracefulShutdown(signal) {
     try { ws.close(1001, 'Servidor reiniciando'); } catch (e) {}
   });
 
+  activeResponses.forEach(res => {
+    try { res.end(); } catch (e) {}
+  });
+  activeResponses.clear();
+
   server.close(() => {
     log('info', 'Servidor HTTP fechado');
     process.exit(0);
@@ -729,6 +761,16 @@ function gracefulShutdown(signal) {
 
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+process.on('uncaughtException', (err) => {
+  log('error', `UNCAUGHT EXCEPTION: ${err.message}`);
+  log('error', err.stack);
+  gracefulShutdown('uncaughtException');
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  log('error', `UNHANDLED REJECTION: ${reason}`);
+});
 
 // ================= START =================
 (async () => {
