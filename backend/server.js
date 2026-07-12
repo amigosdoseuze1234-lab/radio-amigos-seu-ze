@@ -103,6 +103,8 @@ async function loadPlaylist() {
     const meta = await getTrackMetadata(filePath);
     const stats = fs.statSync(filePath);
 
+    // FIX: Melhor estimativa de duração considerando bitrate típico de 128kbps
+    // 128kbps = 16KB/s. Mas usamos ffprobe se disponível para duração real
     const estimatedDuration = meta.duration > 0
       ? meta.duration
       : Math.ceil(stats.size / 16000);
@@ -292,9 +294,6 @@ setInterval(cleanupDeadListeners, CLEANUP_INTERVAL_MS);
 // ============================================================
 // STREAMING BROADCAST - ARQUITETURA DE RÁDIO AO VIVO
 // ============================================================
-// Uma única transmissão contínua. Todos os ouvintes recebem
-// exatamente o mesmo áudio no mesmo ponto do tempo.
-// ============================================================
 
 let currentTrackIndex = 0;
 let isPlaying = false;
@@ -304,6 +303,7 @@ let trackStartTime = 0;
 let currentTrackDuration = 0;
 let trackTimeout = null;
 let isTransitioning = false;
+let currentTrack = null; // FIX: Guarda referência à música atual
 
 function getNextTrack() {
   if (PLAYLIST.length === 0) return null;
@@ -313,9 +313,8 @@ function getNextTrack() {
 }
 
 function getCurrentTrack() {
-  if (PLAYLIST.length === 0) return null;
-  const idx = (currentTrackIndex - 1 + PLAYLIST.length) % PLAYLIST.length;
-  return PLAYLIST[idx];
+  // FIX: Retorna a música atual guardada, não calcula pelo índice
+  return currentTrack;
 }
 
 // ================= BROADCAST SEGURO =================
@@ -368,7 +367,6 @@ function broadcastState() {
 }
 
 // ================= MASTER STREAM =================
-// Stream único que distribui áudio para TODOS os ouvintes
 
 function initMasterStream() {
   if (masterStream) {
@@ -432,6 +430,13 @@ function cleanupFfmpeg() {
     const oldProcess = ffmpegProcess;
     ffmpegProcess = null;
 
+    // FIX: Fazer unpipe do masterStream antes de matar o processo
+    try {
+      if (masterStream && oldProcess.stdout) {
+        oldProcess.stdout.unpipe(masterStream);
+      }
+    } catch (e) {}
+
     try {
       oldProcess.stdout.removeAllListeners('data');
       oldProcess.stdout.removeAllListeners('error');
@@ -457,8 +462,6 @@ function cleanupFfmpeg() {
 }
 
 // ================= RÁDIO ENGINE =================
-// Motor principal: toca uma música de cada vez, 
-// envia para masterStream, todos ouvem juntos
 
 function startRadioStream() {
   if (PLAYLIST.length === 0) {
@@ -480,11 +483,15 @@ function stopRadioStream() {
   isPlaying = false;
   cleanupFfmpeg();
   destroyMasterStream();
+  currentTrack = null;
   log('info', '⏹ Rádio parada');
 }
 
 function playNextTrack() {
-  if (!isPlaying) return;
+  if (!isPlaying) {
+    log('warn', 'playNextTrack chamado mas isPlaying=false');
+    return;
+  }
   if (isTransitioning) {
     log('warn', 'Transição já em andamento, ignorando');
     return;
@@ -492,6 +499,18 @@ function playNextTrack() {
 
   isTransitioning = true;
   cleanupFfmpeg();
+
+  // FIX: Pequeno delay para garantir que o ffmpeg anterior foi completamente limpo
+  setTimeout(() => {
+    _doPlayNextTrack();
+  }, 100);
+}
+
+function _doPlayNextTrack() {
+  if (!isPlaying) {
+    isTransitioning = false;
+    return;
+  }
 
   const track = getNextTrack();
   if (!track) {
@@ -507,6 +526,9 @@ function playNextTrack() {
     setTimeout(() => playNextTrack(), 1000);
     return;
   }
+
+  // FIX: Guarda referência à música atual
+  currentTrack = track;
 
   log('info', `▶ Tocando: ${track.title} (${track.duration}s)`);
   broadcastMetadata(track);
@@ -537,8 +559,10 @@ function playNextTrack() {
     detached: false
   });
 
-  // CRÍTICO: pipe SEM end:false para manter o masterStream vivo
-  // entre faixas. O masterStream é recriado apenas se necessário.
+  // FIX: Guarda referência local ao track para o closure
+  const thisTrack = track;
+  const thisFfmpeg = ffmpegProcess;
+
   ffmpegProcess.stdout.pipe(masterStream, { end: false });
 
   ffmpegProcess.stdout.on('error', (err) => {
@@ -551,23 +575,41 @@ function playNextTrack() {
 
   ffmpegProcess.on('error', (err) => {
     log('error', `Erro ao iniciar ffmpeg: ${err.message}`);
-    if (isPlaying) {
+    if (isPlaying && ffmpegProcess === thisFfmpeg) {
       isTransitioning = false;
       setTimeout(() => playNextTrack(), 2000);
     }
   });
 
   ffmpegProcess.on('close', (code, signal) => {
-    log('info', `FFmpeg encerrou (código: ${code}, sinal: ${signal})`);
+    log('info', `FFmpeg encerrou (código: ${code}, sinal: ${signal}) - música: ${thisTrack.title}`);
 
     if (!isPlaying) {
       isTransitioning = false;
       return;
     }
 
+    // FIX: Só processa se este é o ffmpeg atual (evita processar evento de ffmpeg antigo)
+    if (ffmpegProcess !== thisFfmpeg && ffmpegProcess !== null) {
+      log('info', `Ignorando close de ffmpeg antigo (${thisTrack.title})`);
+      return;
+    }
+
+    // FIX: Se foi morto por sinal do cleanupFfmpeg, não avança automaticamente
+    // Mas se foi um sinal externo (crash), tenta avançar
     if (signal) {
-      log('info', `FFmpeg encerrou por sinal ${signal}, não avançando`);
-      isTransitioning = false;
+      const elapsed = Date.now() - trackStartTime;
+      const minElapsed = Math.max(currentTrackDuration * 0.5, 3000);
+
+      if (elapsed >= minElapsed) {
+        // Provavelmente terminou naturalmente mas recebeu sinal
+        log('info', `FFmpeg encerrou por sinal ${signal}, mas música parece completa (${elapsed}ms). Avançando...`);
+        isTransitioning = false;
+        setTimeout(() => playNextTrack(), 500);
+      } else {
+        log('info', `FFmpeg encerrou por sinal ${signal}, não avançando (${elapsed}ms < ${minElapsed}ms)`);
+        isTransitioning = false;
+      }
       return;
     }
 
@@ -588,28 +630,37 @@ function playNextTrack() {
       return;
     }
 
-    log('info', `✅ ${track.title} terminou. Avançando...`);
+    log('info', `✅ ${thisTrack.title} terminou. Avançando...`);
     isTransitioning = false;
     setTimeout(() => playNextTrack(), 500);
   });
 
-  // Timeout de segurança: se a música travar, força próxima
+  // FIX: Timeout de segurança mais robusto
+  // Usa um timeout mínimo de 30s além da duração, ou 5 minutos no máximo
+  const timeoutDelay = Math.min(currentTrackDuration + 30000, Math.max(currentTrackDuration + 10000, 300000));
   trackTimeout = setTimeout(() => {
     if (!isPlaying) return;
     const elapsed = Date.now() - trackStartTime;
     if (elapsed > currentTrackDuration + 30000) {
-      log('warn', `⏭ Timeout: ${track.title} (${elapsed}ms)`);
-      isTransitioning = false;
-      cleanupFfmpeg();
-      if (isPlaying) {
-        setTimeout(() => playNextTrack(), 500);
+      log('warn', `⏭ Timeout de segurança: ${thisTrack.title} (${elapsed}ms > ${currentTrackDuration + 30000}ms)`);
+      if (ffmpegProcess === thisFfmpeg) {
+        isTransitioning = false;
+        cleanupFfmpeg();
+        if (isPlaying) {
+          setTimeout(() => playNextTrack(), 500);
+        }
       }
     }
-  }, currentTrackDuration + 35000);
+  }, timeoutDelay);
 
+  // FIX: isTransitioning fica true até o ffmpeg estar realmente rodando
+  // Verifica se o ffmpeg iniciou corretamente após 1 segundo
   setTimeout(() => {
-    isTransitioning = false;
-  }, 500);
+    if (ffmpegProcess === thisFfmpeg && isPlaying) {
+      // FFmpeg ainda está rodando, tudo OK
+      isTransitioning = false;
+    }
+  }, 1000);
 }
 
 // ================= CHAT =================
@@ -696,14 +747,12 @@ wss.on('connection', (ws, req) => {
     try {
       const data = JSON.parse(message);
 
-      // Heartbeat do ouvinte
       if (data.type === 'listener_ping' && data.sessionId) {
         updateListenerPing(data.sessionId);
         safeWsSend(ws, { type: 'listener_pong', time: Date.now() });
         return;
       }
 
-      // Registro de novo ouvinte
       if (data.type === 'listener_join' && data.sessionId) {
         wsToSession.set(ws, data.sessionId);
         addListener(data.sessionId, {
@@ -848,9 +897,6 @@ app.get('/api/history', (req, res) => {
 // ============================================================
 // ROTA /stream - STREAMING BROADCAST AO VIVO
 // ============================================================
-// Esta é a rota CRÍTICA. Todo ouvinte conecta aqui e recebe
-// o mesmo áudio no mesmo ponto do tempo.
-// ============================================================
 
 app.get('/stream', (req, res) => {
   if (PLAYLIST.length === 0) {
@@ -861,7 +907,6 @@ app.get('/stream', (req, res) => {
   const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
   const userAgent = req.headers['user-agent'] || 'unknown';
 
-  // Headers de streaming ao vivo (icecast/shoutcast compatível)
   res.setHeader('Content-Type', 'audio/mpeg');
   res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
   res.setHeader('Pragma', 'no-cache');
@@ -876,10 +921,8 @@ app.get('/stream', (req, res) => {
   res.setHeader('icy-pub', '1');
   res.setHeader('Access-Control-Allow-Origin', '*');
 
-  // Enviar headers imediatamente para o cliente começar a bufferizar
   res.flushHeaders();
 
-  // Registrar ouvinte no sistema
   resToSession.set(res, sessionId);
   addListener(sessionId, {
     res: res,
@@ -889,22 +932,18 @@ app.get('/stream', (req, res) => {
 
   log('info', `🎧 Ouvinte conectado ao stream: ${sessionId.substring(0, 8)}... (total: ${getActiveListenersCount()})`);
 
-  // Garantir que o masterStream existe
   if (!masterStream) {
     initMasterStream();
   }
 
-  // Iniciar a rádio se ainda não estiver tocando
   if (!isPlaying) {
     startRadioStream();
   }
 
-  // Handlers de desconexão
   const onReqClose = () => {
     removeListener(sessionId, 'client_disconnect');
     log('info', `🎧 Ouvinte desconectou: ${sessionId.substring(0, 8)}... (restam: ${getActiveListenersCount()})`);
 
-    // Se não houver mais ouvintes, parar a rádio após 30s
     if (getActiveListenersCount() === 0) {
       setTimeout(() => {
         if (getActiveListenersCount() === 0 && isPlaying) {
