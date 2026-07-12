@@ -121,34 +121,16 @@ async function loadPlaylist() {
   console.log(`✓ ${PLAYLIST.length} músicas carregadas.`);
 }
 
-// ================= SISTEMA DE OUVINTES (NOVO) =================
-/**
- * Estrutura de um ouvinte:
- * {
- *   sessionId: string,      // ID único da sessão
- *   ws: WebSocket|null,     // Conexão WebSocket associada
- *   res: Response|null,       // Conexão HTTP do stream
- *   ip: string,             // IP do cliente
- *   userAgent: string,      // User-Agent
- *   connectedAt: number,    // Timestamp de conexão
- *   lastPing: number,       // Último heartbeat recebido
- *   isPlaying: boolean      // Se está realmente reproduzindo
- * }
- */
+// ================= SISTEMA DE OUVINTES =================
+const listeners = new Map();
+const wsToSession = new Map();
+const resToSession = new Map();
 
-const listeners = new Map();        // sessionId -> listener data
-const wsToSession = new Map();      // WebSocket -> sessionId
-const resToSession = new Map();     // Response -> sessionId
-
-// Estatísticas
 let peakListeners = 0;
 let dailyUniqueListeners = new Set();
-let todayDate = new Date().toDateString();
 
-// Configurações
-const LISTENER_TIMEOUT_MS = 30000;      // 30s sem heartbeat = removido
-const CLEANUP_INTERVAL_MS = 15000;      // Verificar a cada 15s
-const HEARTBEAT_INTERVAL_MS = 10000;    // Enviar ping a cada 10s
+const LISTENER_TIMEOUT_MS = 30000;
+const CLEANUP_INTERVAL_MS = 15000;
 
 function generateSessionId() {
   return `${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
@@ -169,7 +151,6 @@ function loadDailyStats() {
         peakListeners = data.peakListeners || 0;
         log('info', `Estatísticas do dia carregadas: ${dailyUniqueListeners.size} únicos, pico ${peakListeners}`);
       } else {
-        // Novo dia, resetar
         dailyUniqueListeners.clear();
         peakListeners = 0;
         saveDailyStats();
@@ -195,7 +176,6 @@ function saveDailyStats() {
 }
 
 function addListener(sessionId, data) {
-  // Se já existe com mesmo sessionId, remover antigo primeiro
   if (listeners.has(sessionId)) {
     removeListener(sessionId, 'duplicate_session');
   }
@@ -212,10 +192,8 @@ function addListener(sessionId, data) {
     isPlaying: true
   });
 
-  // Registrar como ouvinte único do dia
   dailyUniqueListeners.add(sessionId);
 
-  // Atualizar pico
   const currentCount = listeners.size;
   if (currentCount > peakListeners) {
     peakListeners = currentCount;
@@ -232,7 +210,6 @@ function removeListener(sessionId, reason = 'unknown') {
   const listener = listeners.get(sessionId);
   if (!listener) return false;
 
-  // Limpar recursos
   if (listener.res && !listener.res.destroyed) {
     try {
       listener.res.end();
@@ -244,7 +221,6 @@ function removeListener(sessionId, reason = 'unknown') {
     } catch (e) {}
   }
 
-  // Remover dos maps
   if (listener.ws) wsToSession.delete(listener.ws);
   if (listener.res) resToSession.delete(listener.res);
   listeners.delete(sessionId);
@@ -282,7 +258,6 @@ function cleanupDeadListeners() {
   let removed = 0;
 
   for (const [sessionId, listener] of listeners) {
-    // Verificar se a conexão HTTP está morta
     if (listener.res) {
       const resDead = listener.res.destroyed || listener.res.writableEnded || listener.res.writableFinished;
       if (resDead) {
@@ -292,7 +267,6 @@ function cleanupDeadListeners() {
       }
     }
 
-    // Verificar se WebSocket está fechado
     if (listener.ws) {
       if (listener.ws.readyState === WebSocket.CLOSED || listener.ws.readyState === WebSocket.CLOSING) {
         removeListener(sessionId, 'dead_ws');
@@ -301,7 +275,6 @@ function cleanupDeadListeners() {
       }
     }
 
-    // Verificar timeout de heartbeat
     if (now - listener.lastPing > LISTENER_TIMEOUT_MS) {
       removeListener(sessionId, 'timeout');
       removed++;
@@ -314,10 +287,15 @@ function cleanupDeadListeners() {
   }
 }
 
-// Executar limpeza periodicamente
 setInterval(cleanupDeadListeners, CLEANUP_INTERVAL_MS);
 
-// ================= STREAMING - ARQUITETURA GLOBAL STREAM =================
+// ============================================================
+// STREAMING BROADCAST - ARQUITETURA DE RÁDIO AO VIVO
+// ============================================================
+// Uma única transmissão contínua. Todos os ouvintes recebem
+// exatamente o mesmo áudio no mesmo ponto do tempo.
+// ============================================================
+
 let currentTrackIndex = 0;
 let isPlaying = false;
 let ffmpegProcess = null;
@@ -389,15 +367,18 @@ function broadcastState() {
   });
 }
 
-// ================= SISTEMA DE STREAMING CORRIGIDO =================
+// ================= MASTER STREAM =================
+// Stream único que distribui áudio para TODOS os ouvintes
 
 function initMasterStream() {
-  if (masterStream) return;
+  if (masterStream) {
+    log('info', 'MasterStream já existe, reutilizando');
+    return;
+  }
 
   masterStream = new PassThrough();
 
   masterStream.on('data', (chunk) => {
-    // Distribuir para todos os ouvintes ativos
     const deadSessions = [];
     for (const [sessionId, listener] of listeners) {
       if (listener.res) {
@@ -421,11 +402,30 @@ function initMasterStream() {
   masterStream.on('error', (err) => {
     log('error', `Erro no masterStream: ${err.message}`);
     masterStream = null;
-    initMasterStream();
+    setTimeout(() => initMasterStream(), 500);
+  });
+
+  masterStream.on('end', () => {
+    log('info', 'MasterStream encerrou');
+    masterStream = null;
   });
 
   log('info', 'MasterStream inicializado');
 }
+
+function destroyMasterStream() {
+  if (!masterStream) return;
+  try {
+    masterStream.removeAllListeners('data');
+    masterStream.removeAllListeners('error');
+    masterStream.removeAllListeners('end');
+    masterStream.destroy();
+  } catch (e) {}
+  masterStream = null;
+  log('info', 'MasterStream destruído');
+}
+
+// ================= FFMPEG MANAGEMENT =================
 
 function cleanupFfmpeg() {
   if (ffmpegProcess) {
@@ -456,6 +456,10 @@ function cleanupFfmpeg() {
   }
 }
 
+// ================= RÁDIO ENGINE =================
+// Motor principal: toca uma música de cada vez, 
+// envia para masterStream, todos ouvem juntos
+
 function startRadioStream() {
   if (PLAYLIST.length === 0) {
     log('error', 'Nenhuma música na playlist');
@@ -475,6 +479,7 @@ function startRadioStream() {
 function stopRadioStream() {
   isPlaying = false;
   cleanupFfmpeg();
+  destroyMasterStream();
   log('info', '⏹ Rádio parada');
 }
 
@@ -528,9 +533,12 @@ function playNextTrack() {
     '-flush_packets', '1',
     'pipe:1'
   ], {
-    stdio: ['ignore', 'pipe', 'pipe']
+    stdio: ['ignore', 'pipe', 'pipe'],
+    detached: false
   });
 
+  // CRÍTICO: pipe SEM end:false para manter o masterStream vivo
+  // entre faixas. O masterStream é recriado apenas se necessário.
   ffmpegProcess.stdout.pipe(masterStream, { end: false });
 
   ffmpegProcess.stdout.on('error', (err) => {
@@ -585,6 +593,7 @@ function playNextTrack() {
     setTimeout(() => playNextTrack(), 500);
   });
 
+  // Timeout de segurança: se a música travar, força próxima
   trackTimeout = setTimeout(() => {
     if (!isPlaying) return;
     const elapsed = Date.now() - trackStartTime;
@@ -836,7 +845,13 @@ app.get('/api/history', (req, res) => {
   res.json(chatHistory.slice(0, 30));
 });
 
-// ================= STREAM (RÁDIO AO VIVO) - CORREÇÃO CRÍTICA =================
+// ============================================================
+// ROTA /stream - STREAMING BROADCAST AO VIVO
+// ============================================================
+// Esta é a rota CRÍTICA. Todo ouvinte conecta aqui e recebe
+// o mesmo áudio no mesmo ponto do tempo.
+// ============================================================
+
 app.get('/stream', (req, res) => {
   if (PLAYLIST.length === 0) {
     return res.status(404).json({ error: 'Nenhuma música disponível' });
@@ -846,15 +861,25 @@ app.get('/stream', (req, res) => {
   const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
   const userAgent = req.headers['user-agent'] || 'unknown';
 
+  // Headers de streaming ao vivo (icecast/shoutcast compatível)
   res.setHeader('Content-Type', 'audio/mpeg');
   res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
   res.setHeader('Pragma', 'no-cache');
   res.setHeader('Expires', '0');
   res.setHeader('Connection', 'keep-alive');
+  res.setHeader('Accept-Ranges', 'none');
   res.setHeader('icy-name', 'Rádio Amigos do Seu Zé');
   res.setHeader('icy-genre', 'Ponto de Umbanda');
+  res.setHeader('icy-br', '128');
+  res.setHeader('icy-sr', '44100');
+  res.setHeader('icy-ch', '2');
+  res.setHeader('icy-pub', '1');
+  res.setHeader('Access-Control-Allow-Origin', '*');
 
-  // Registrar ouvinte
+  // Enviar headers imediatamente para o cliente começar a bufferizar
+  res.flushHeaders();
+
+  // Registrar ouvinte no sistema
   resToSession.set(res, sessionId);
   addListener(sessionId, {
     res: res,
@@ -862,26 +887,24 @@ app.get('/stream', (req, res) => {
     userAgent: userAgent
   });
 
-  const onResError = (err) => {
-    log('error', `Erro na resposta do stream: ${err.message}`);
-    removeListener(sessionId, 'stream_error');
-  };
-  res.on('error', onResError);
-
   log('info', `🎧 Ouvinte conectado ao stream: ${sessionId.substring(0, 8)}... (total: ${getActiveListenersCount()})`);
 
+  // Garantir que o masterStream existe
   if (!masterStream) {
     initMasterStream();
   }
 
+  // Iniciar a rádio se ainda não estiver tocando
   if (!isPlaying) {
     startRadioStream();
   }
 
+  // Handlers de desconexão
   const onReqClose = () => {
     removeListener(sessionId, 'client_disconnect');
     log('info', `🎧 Ouvinte desconectou: ${sessionId.substring(0, 8)}... (restam: ${getActiveListenersCount()})`);
 
+    // Se não houver mais ouvintes, parar a rádio após 30s
     if (getActiveListenersCount() === 0) {
       setTimeout(() => {
         if (getActiveListenersCount() === 0 && isPlaying) {
@@ -894,6 +917,12 @@ app.get('/stream', (req, res) => {
 
   req.on('close', onReqClose);
   req.on('error', onReqClose);
+  req.on('aborted', onReqClose);
+
+  res.on('error', (err) => {
+    log('error', `Erro na resposta do stream: ${err.message}`);
+    removeListener(sessionId, 'stream_error');
+  });
 });
 
 app.get('/api/stream', (req, res) => {
@@ -938,7 +967,6 @@ setInterval(() => {
   broadcastState();
 }, 10000);
 
-// Salvar estatísticas periodicamente
 setInterval(() => {
   saveDailyStats();
 }, 60000);
@@ -955,7 +983,6 @@ function gracefulShutdown(signal) {
     masterStream = null;
   }
 
-  // Limpar todos os ouvintes
   for (const [sessionId] of listeners) {
     removeListener(sessionId, 'shutdown');
   }
