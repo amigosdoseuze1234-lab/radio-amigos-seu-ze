@@ -122,21 +122,27 @@ async function loadPlaylist() {
 }
 
 // ================= STREAMING - ARQUITETURA GLOBAL STREAM =================
-// SOLUÇÃO: Um único masterStream (PassThrough) que NUNCA morre.
-// Cada track spawna um ffmpeg que escreve no masterStream.
-// Clientes HTTP leem do masterStream.
-// Quando um ffmpeg termina, o próximo começa a escrever no mesmo masterStream.
+// CORREÇÃO: Sistema de sincronização global para todos os ouvintes
+// Todos ouvem a MESMA música no MESMO ponto de tempo
 
 let currentTrackIndex = 0;
 let isPlaying = false;
 let ffmpegProcess = null;
-let masterStream = null;         // Stream global que nunca morre
+let masterStream = null;
 let streamClients = 0;
-let activeResponses = new Set(); // Clientes HTTP conectados
+let activeResponses = new Set();
 let trackStartTime = 0;
 let currentTrackDuration = 0;
 let trackTimeout = null;
 let isTransitioning = false;
+
+// NOVO: Estado global compartilhado para sincronização perfeita
+let globalState = {
+  currentTrack: null,
+  trackStartTime: 0,
+  isPlaying: false,
+  elapsed: 0
+};
 
 function getNextTrack() {
   if (PLAYLIST.length === 0) return null;
@@ -174,25 +180,37 @@ function broadcast(data) {
 }
 
 function broadcastMetadata(track) {
+  globalState.currentTrack = track;
+  globalState.trackStartTime = Date.now();
+
   broadcast({
     type: 'metadata',
     data: {
       title: track.title,
       artist: track.artist,
-      file: track.file
+      file: track.file,
+      duration: track.duration,
+      startTime: globalState.trackStartTime  // NOVO: envia timestamp de início
     }
   });
 }
 
 function broadcastState() {
-  const track = getCurrentTrack();
+  const track = globalState.currentTrack || getCurrentTrack();
+  const elapsed = globalState.trackStartTime > 0 
+    ? Math.floor((Date.now() - globalState.trackStartTime) / 1000) 
+    : 0;
+
   broadcast({
     type: 'state',
     data: {
       listeners: streamClients,
       currentTrack: track || { title: 'Nenhuma música', artist: 'Ponto de Umbanda', file: '' },
       isLive: true,
-      uptime: process.uptime()
+      uptime: process.uptime(),
+      elapsed: elapsed,
+      duration: track ? track.duration : 0,
+      trackStartTime: globalState.trackStartTime  // NOVO: sincronização temporal
     }
   });
 }
@@ -204,7 +222,6 @@ function initMasterStream() {
 
   masterStream = new PassThrough();
 
-  // Quando o masterStream recebe dados, distribui para todos os clientes HTTP
   masterStream.on('data', (chunk) => {
     const deadResponses = [];
     activeResponses.forEach(res => {
@@ -235,7 +252,6 @@ function initMasterStream() {
 
   masterStream.on('error', (err) => {
     log('error', `Erro no masterStream: ${err.message}`);
-    // Recria o masterStream se der erro crítico
     masterStream = null;
     initMasterStream();
   });
@@ -283,6 +299,7 @@ function startRadioStream() {
   }
 
   isPlaying = true;
+  globalState.isPlaying = true;
   initMasterStream();
   log('info', '🎵 Iniciando streaming da rádio...');
   playNextTrack();
@@ -290,6 +307,7 @@ function startRadioStream() {
 
 function stopRadioStream() {
   isPlaying = false;
+  globalState.isPlaying = false;
   cleanupFfmpeg();
   log('info', '⏹ Rádio parada');
 }
@@ -320,13 +338,17 @@ function playNextTrack() {
   }
 
   log('info', `▶ Tocando: ${track.title} (${track.duration}s)`);
+
+  // CORREÇÃO: Atualiza estado global ANTES de broadcast
+  globalState.currentTrack = track;
+  globalState.trackStartTime = Date.now();
+
   broadcastMetadata(track);
   broadcastState();
 
   trackStartTime = Date.now();
   currentTrackDuration = track.duration * 1000;
 
-  // Garante que masterStream existe
   if (!masterStream) {
     initMasterStream();
   }
@@ -348,14 +370,7 @@ function playNextTrack() {
     stdio: ['ignore', 'pipe', 'pipe']
   });
 
-  // ================= CORREÇÃO CRÍTICA: FFmpeg → MasterStream =================
-  // O ffmpeg escreve DIRETAMENTE no masterStream
-  // Quando o ffmpeg termina, o masterStream CONTINUA VIVO
-  // O próximo ffmpeg escreve no mesmo masterStream
   ffmpegProcess.stdout.pipe(masterStream, { end: false });
-
-  // IMPORTANTE: Não adicionar listeners no stdout aqui para evitar duplicação
-  // O masterStream já tem o listener 'data' que distribui para os clientes
 
   ffmpegProcess.stdout.on('error', (err) => {
     log('error', `Erro no stdout do ffmpeg: ${err.message}`);
@@ -373,7 +388,6 @@ function playNextTrack() {
     }
   });
 
-  // ================= EVENTO CLOSE DO FFMPEG =================
   ffmpegProcess.on('close', (code, signal) => {
     log('info', `FFmpeg encerrou (código: ${code}, sinal: ${signal})`);
 
@@ -382,14 +396,12 @@ function playNextTrack() {
       return;
     }
 
-    // Se foi encerrado por sinal (cleanup manual), não avança
     if (signal) {
       log('info', `FFmpeg encerrou por sinal ${signal}, não avançando`);
       isTransitioning = false;
       return;
     }
 
-    // Se encerrou com erro
     if (code !== 0 && code !== null) {
       log('warn', `FFmpeg erro ${code}, tentando próxima em 2s`);
       isTransitioning = false;
@@ -397,7 +409,6 @@ function playNextTrack() {
       return;
     }
 
-    // Verifica se a música realmente terminou
     const elapsed = Date.now() - trackStartTime;
     const minElapsed = Math.max(currentTrackDuration * 0.5, 3000);
 
@@ -408,15 +419,11 @@ function playNextTrack() {
       return;
     }
 
-    // Música terminou normalmente → avança para próxima
     log('info', `✅ ${track.title} terminou. Avançando...`);
     isTransitioning = false;
-
-    // Delay curto para evitar glitches
     setTimeout(() => playNextTrack(), 500);
   });
 
-  // Timeout de segurança
   trackTimeout = setTimeout(() => {
     if (!isPlaying) return;
 
@@ -432,7 +439,6 @@ function playNextTrack() {
     }
   }, currentTrackDuration + 35000);
 
-  // Libera flag após setup
   setTimeout(() => {
     isTransitioning = false;
   }, 500);
@@ -488,19 +494,34 @@ wss.on('connection', (ws) => {
   clients.add(ws);
   log('info', `Cliente WebSocket conectado. Total: ${clients.size}`);
 
-  const track = getCurrentTrack();
+  // CORREÇÃO: Envia estado atual imediatamente ao conectar
+  const track = globalState.currentTrack || getCurrentTrack();
+  const elapsed = globalState.trackStartTime > 0 
+    ? Math.floor((Date.now() - globalState.trackStartTime) / 1000) 
+    : 0;
+
   safeWsSend(ws, {
     type: 'metadata',
-    data: track || { title: 'Iniciando...', artist: 'Ponto de Umbanda', file: '' }
+    data: {
+      title: track ? track.title : 'Iniciando...',
+      artist: track ? track.artist : 'Ponto de Umbanda',
+      file: track ? track.file : '',
+      duration: track ? track.duration : 0,
+      startTime: globalState.trackStartTime,
+      elapsed: elapsed
+    }
   });
 
   safeWsSend(ws, {
     type: 'state',
     data: {
       listeners: streamClients,
-      currentTrack: track || { title: 'Iniciando...', artist: 'Ponto de Umbanda' },
+      currentTrack: track || { title: 'Iniciando...', artist: 'Ponto de Umbanda', file: '' },
       isLive: true,
-      uptime: process.uptime()
+      uptime: process.uptime(),
+      elapsed: elapsed,
+      duration: track ? track.duration : 0,
+      trackStartTime: globalState.trackStartTime
     }
   });
 
@@ -519,6 +540,21 @@ wss.on('connection', (ws) => {
 
       if (data.type === 'ping') {
         safeWsSend(ws, { type: 'pong', time: Date.now() });
+        return;
+      }
+
+      // CORREÇÃO: listener_ping atualiza contagem de ouvintes WS
+      if (data.type === 'listener_ping') {
+        // Apenas responde com pong, não afeta stream
+        safeWsSend(ws, { 
+          type: 'listener_pong', 
+          time: Date.now(),
+          listeners: streamClients,
+          trackStartTime: globalState.trackStartTime,
+          elapsed: globalState.trackStartTime > 0 
+            ? Math.floor((Date.now() - globalState.trackStartTime) / 1000) 
+            : 0
+        });
         return;
       }
 
@@ -610,8 +646,10 @@ app.get('/api/playlist', (req, res) => {
 });
 
 app.get('/api/status', (req, res) => {
-  const track = getCurrentTrack();
-  const elapsed = trackStartTime > 0 ? Math.floor((Date.now() - trackStartTime) / 1000) : 0;
+  const track = globalState.currentTrack || getCurrentTrack();
+  const elapsed = globalState.trackStartTime > 0 
+    ? Math.floor((Date.now() - globalState.trackStartTime) / 1000) 
+    : 0;
   res.json({
     listeners: streamClients,
     currentTrack: track || { title: 'Nenhuma música', artist: 'Ponto de Umbanda' },
@@ -620,7 +658,8 @@ app.get('/api/status', (req, res) => {
     playlistSize: PLAYLIST.length,
     currentIndex: currentTrackIndex,
     elapsed: elapsed,
-    duration: track ? track.duration : 0
+    duration: track ? track.duration : 0,
+    trackStartTime: globalState.trackStartTime
   });
 });
 
@@ -655,12 +694,10 @@ app.get('/stream', (req, res) => {
 
   log('info', `🎧 Cliente conectado ao stream. Total ouvintes: ${streamClients}`);
 
-  // Inicializa masterStream se necessário
   if (!masterStream) {
     initMasterStream();
   }
 
-  // Inicia a rádio se não estiver tocando
   if (!isPlaying) {
     startRadioStream();
   }
@@ -686,18 +723,24 @@ app.get('/stream', (req, res) => {
 });
 
 app.get('/api/stream', (req, res) => {
-  const track = getCurrentTrack();
+  const track = globalState.currentTrack || getCurrentTrack();
   res.json({
     stream: `${req.protocol}://${req.get('host')}/stream`,
     title: track ? track.title : 'Nenhuma música',
     artist: track ? track.artist : 'Ponto de Umbanda',
-    listeners: streamClients
+    listeners: streamClients,
+    trackStartTime: globalState.trackStartTime,
+    elapsed: globalState.trackStartTime > 0 
+      ? Math.floor((Date.now() - globalState.trackStartTime) / 1000) 
+      : 0
   });
 });
 
 app.get('/api/health', (req, res) => {
-  const track = getCurrentTrack();
-  const elapsed = trackStartTime > 0 ? Math.floor((Date.now() - trackStartTime) / 1000) : 0;
+  const track = globalState.currentTrack || getCurrentTrack();
+  const elapsed = globalState.trackStartTime > 0 
+    ? Math.floor((Date.now() - globalState.trackStartTime) / 1000) 
+    : 0;
   res.json({
     status: 'ok',
     uptime: process.uptime(),
@@ -708,7 +751,8 @@ app.get('/api/health', (req, res) => {
     isPlaying: isPlaying,
     streaming: isPlaying,
     elapsed: elapsed,
-    duration: track ? track.duration : 0
+    duration: track ? track.duration : 0,
+    trackStartTime: globalState.trackStartTime
   });
 });
 
@@ -729,9 +773,10 @@ setInterval(() => {
   }
 }, 30000);
 
+// CORREÇÃO: Broadcast de estado mais frequente para sincronização em tempo real
 setInterval(() => {
   broadcastState();
-}, 10000);
+}, 5000);  // De 10s para 5s
 
 // ================= GRACEFUL SHUTDOWN =================
 function gracefulShutdown(signal) {
