@@ -49,7 +49,7 @@ app.use(express.static(FRONTEND_DIR));
 if (fs.existsSync(AUDIO_DIR)) {
   app.use('/audio', express.static(AUDIO_DIR));
 } else {
-  console.error(`Pasta de áudio não encontrada: ${AUDIO_DIR}`);
+  console.error(`Pasta de audio nao encontrada: ${AUDIO_DIR}`);
 }
 
 // ================= METADADOS ID3 =================
@@ -90,7 +90,7 @@ let PLAYLIST = [];
 async function loadPlaylist() {
   PLAYLIST = [];
   if (!fs.existsSync(AUDIO_DIR)) {
-    console.error(`Pasta de áudio não encontrada: ${AUDIO_DIR}`);
+    console.error(`Pasta de audio nao encontrada: ${AUDIO_DIR}`);
     return;
   }
 
@@ -118,7 +118,7 @@ async function loadPlaylist() {
     });
   }
 
-  console.log(`✓ ${PLAYLIST.length} músicas carregadas.`);
+  console.log(`✓ ${PLAYLIST.length} musicas carregadas.`);
 }
 
 // ================= SISTEMA DE OUVINTES =================
@@ -149,7 +149,7 @@ function loadDailyStats() {
       if (data.date === today) {
         dailyUniqueListeners = new Set(data.uniqueListeners || []);
         peakListeners = data.peakListeners || 0;
-        log('info', `Estatísticas do dia carregadas: ${dailyUniqueListeners.size} únicos, pico ${peakListeners}`);
+        log('info', `Estatisticas do dia carregadas: ${dailyUniqueListeners.size} unicos, pico ${peakListeners}`);
       } else {
         dailyUniqueListeners.clear();
         peakListeners = 0;
@@ -157,7 +157,7 @@ function loadDailyStats() {
       }
     }
   } catch (e) {
-    log('warn', `Erro ao carregar estatísticas: ${e.message}`);
+    log('warn', `Erro ao carregar estatisticas: ${e.message}`);
   }
 }
 
@@ -171,12 +171,13 @@ function saveDailyStats() {
       savedAt: new Date().toISOString()
     }, null, 2));
   } catch (e) {
-    log('warn', `Erro ao salvar estatísticas: ${e.message}`);
+    log('warn', `Erro ao salvar estatisticas: ${e.message}`);
   }
 }
 
 function addListener(sessionId, data) {
   if (listeners.has(sessionId)) {
+    log('warn', `SessionId duplicado detectado: ${sessionId.substring(0, 8)}...`);
     removeListener(sessionId, 'duplicate_session');
   }
 
@@ -225,7 +226,7 @@ function removeListener(sessionId, reason = 'unknown') {
   if (listener.res) resToSession.delete(listener.res);
   listeners.delete(sessionId);
 
-  log('info', `👋 Ouvinte desconectado: ${sessionId.substring(0, 8)}... (razão: ${reason}, restantes: ${listeners.size})`);
+  log('info', `👋 Ouvinte desconectado: ${sessionId.substring(0, 8)}... (razao: ${reason}, restantes: ${listeners.size})`);
   broadcastState();
   return true;
 }
@@ -252,7 +253,7 @@ function getListenerStats() {
   };
 }
 
-// ================= LIMPEZA AUTOMÁTICA =================
+// ================= LIMPEZA AUTOMATICA =================
 function cleanupDeadListeners() {
   const now = Date.now();
   let removed = 0;
@@ -290,10 +291,10 @@ function cleanupDeadListeners() {
 setInterval(cleanupDeadListeners, CLEANUP_INTERVAL_MS);
 
 // ============================================================
-// STREAMING BROADCAST - RÁDIO AO VIVO REAL
+// STREAMING BROADCAST - RADIO AO VIVO REAL
 // ============================================================
-// Uma única transmissão contínua. Todos os ouvintes recebem
-// exatamente o mesmo áudio no mesmo ponto do tempo.
+// Uma unica transmissao continua. Todos os ouvintes recebem
+// exatamente o mesmo audio no mesmo ponto do tempo.
 // ============================================================
 
 let currentTrackIndex = 0;
@@ -305,7 +306,6 @@ let currentTrackDuration = 0;
 let trackTimeout = null;
 let isTransitioning = false;
 let currentTrack = null;
-let radioStartTime = 0; // Quando a rádio começou a tocar
 
 function getNextTrack() {
   if (PLAYLIST.length === 0) return null;
@@ -331,17 +331,20 @@ function safeWsSend(ws, data) {
 
 function broadcast(data) {
   const msg = JSON.stringify(data);
+  let sent = 0;
   clients.forEach(ws => {
     try {
       if (ws.readyState === WebSocket.OPEN) {
         ws.send(msg);
+        sent++;
       }
     } catch (err) {}
   });
+  return sent;
 }
 
 function broadcastMetadata(track) {
-  broadcast({
+  const sent = broadcast({
     type: 'metadata',
     data: {
       title: track.title,
@@ -349,19 +352,20 @@ function broadcastMetadata(track) {
       file: track.file
     }
   });
+  log('info', `📡 Metadata broadcast: "${track.title}" para ${sent} clientes WS`);
 }
 
 function broadcastState() {
   const track = getCurrentTrack();
   const stats = getListenerStats();
   const elapsed = trackStartTime > 0 ? Math.floor((Date.now() - trackStartTime) / 1000) : 0;
-  broadcast({
+  const sent = broadcast({
     type: 'state',
     data: {
       listeners: stats.active,
       peakListeners: stats.peak,
       dailyUnique: stats.dailyUnique,
-      currentTrack: track || { title: 'Nenhuma música', artist: 'Ponto de Umbanda', file: '' },
+      currentTrack: track || { title: 'Nenhuma musica', artist: 'Ponto de Umbanda', file: '' },
       isLive: true,
       uptime: process.uptime(),
       elapsed: elapsed,
@@ -374,7 +378,7 @@ function broadcastState() {
 
 function initMasterStream() {
   if (masterStream) {
-    log('info', 'MasterStream já existe, reutilizando');
+    log('info', 'MasterStream ja existe, reutilizando');
     return;
   }
 
@@ -424,7 +428,7 @@ function destroyMasterStream() {
     masterStream.destroy();
   } catch (e) {}
   masterStream = null;
-  log('info', 'MasterStream destruído');
+  log('info', 'MasterStream destruido');
 }
 
 // ================= FFMPEG MANAGEMENT =================
@@ -464,32 +468,31 @@ function cleanupFfmpeg() {
   }
 }
 
-// ================= RÁDIO ENGINE =================
+// ================= RADIO ENGINE =================
 
 function startRadioStream() {
   if (PLAYLIST.length === 0) {
-    log('error', 'Nenhuma música na playlist');
+    log('error', 'Nenhuma musica na playlist');
     return;
   }
   if (isPlaying) {
-    log('warn', 'Rádio já está tocando');
+    log('warn', 'Radio ja esta tocando - ignorando startRadioStream()');
     return;
   }
 
   isPlaying = true;
-  radioStartTime = Date.now();
   initMasterStream();
-  log('info', '🎵 Iniciando streaming da rádio ao vivo...');
+  log('info', '🎵 Iniciando streaming da radio ao vivo...');
   playNextTrack();
 }
 
 function stopRadioStream() {
+  log('info', '⏹ Parando radio...');
   isPlaying = false;
   cleanupFfmpeg();
   destroyMasterStream();
   currentTrack = null;
-  radioStartTime = 0;
-  log('info', '⏹ Rádio parada');
+  log('info', '⏹ Radio parada');
 }
 
 function playNextTrack() {
@@ -498,35 +501,37 @@ function playNextTrack() {
     return;
   }
   if (isTransitioning) {
-    log('warn', 'Transição já em andamento, ignorando');
+    log('warn', 'Transicao ja em andamento, ignorando playNextTrack()');
     return;
   }
 
+  log('info', '🔄 Iniciando transicao para proxima musica...');
   isTransitioning = true;
   cleanupFfmpeg();
 
   // Delay para garantir limpeza completa do ffmpeg anterior
   setTimeout(() => {
     _doPlayNextTrack();
-  }, 200);
+  }, 300);
 }
 
 function _doPlayNextTrack() {
   if (!isPlaying) {
+    log('warn', '_doPlayNextTrack: isPlaying=false, cancelando');
     isTransitioning = false;
     return;
   }
 
   const track = getNextTrack();
   if (!track) {
-    log('error', 'Nenhuma música para tocar');
+    log('error', 'Nenhuma musica para tocar');
     isPlaying = false;
     isTransitioning = false;
     return;
   }
 
   if (!fs.existsSync(track.path)) {
-    log('error', `Arquivo não encontrado: ${track.path}`);
+    log('error', `Arquivo nao encontrado: ${track.path}`);
     isTransitioning = false;
     setTimeout(() => playNextTrack(), 1000);
     return;
@@ -542,6 +547,7 @@ function _doPlayNextTrack() {
   currentTrackDuration = track.duration * 1000;
 
   if (!masterStream) {
+    log('warn', 'MasterStream nulo, reinicializando...');
     initMasterStream();
   }
 
@@ -566,6 +572,8 @@ function _doPlayNextTrack() {
   const thisTrack = track;
   const thisFfmpeg = ffmpegProcess;
 
+  log('info', `🎬 FFmpeg iniciado PID=${ffmpegProcess.pid} para "${thisTrack.title}"`);
+
   ffmpegProcess.stdout.pipe(masterStream, { end: false });
 
   ffmpegProcess.stdout.on('error', (err) => {
@@ -585,9 +593,10 @@ function _doPlayNextTrack() {
   });
 
   ffmpegProcess.on('close', (code, signal) => {
-    log('info', `FFmpeg encerrou (código: ${code}, sinal: ${signal}) - música: ${thisTrack.title}`);
+    log('info', `FFmpeg encerrou (codigo: ${code}, sinal: ${signal}) - musica: ${thisTrack.title}`);
 
     if (!isPlaying) {
+      log('info', 'isPlaying=false, ignorando close do ffmpeg');
       isTransitioning = false;
       return;
     }
@@ -604,18 +613,18 @@ function _doPlayNextTrack() {
       const minElapsed = Math.max(currentTrackDuration * 0.5, 3000);
 
       if (elapsed >= minElapsed) {
-        log('info', `FFmpeg encerrou por sinal ${signal}, mas música parece completa (${elapsed}ms). Avançando...`);
+        log('info', `FFmpeg encerrou por sinal ${signal}, mas musica parece completa (${elapsed}ms). Avancando...`);
         isTransitioning = false;
         setTimeout(() => playNextTrack(), 500);
       } else {
-        log('info', `FFmpeg encerrou por sinal ${signal}, não avançando (${elapsed}ms < ${minElapsed}ms)`);
+        log('info', `FFmpeg encerrou por sinal ${signal}, nao avancando (${elapsed}ms < ${minElapsed}ms)`);
         isTransitioning = false;
       }
       return;
     }
 
     if (code !== 0 && code !== null) {
-      log('warn', `FFmpeg erro ${code}, tentando próxima em 2s`);
+      log('warn', `FFmpeg erro ${code}, tentando proxima em 2s`);
       isTransitioning = false;
       setTimeout(() => playNextTrack(), 2000);
       return;
@@ -631,12 +640,12 @@ function _doPlayNextTrack() {
       return;
     }
 
-    log('info', `✅ ${thisTrack.title} terminou. Avançando...`);
+    log('info', `✅ ${thisTrack.title} terminou. Avancando...`);
     isTransitioning = false;
     setTimeout(() => playNextTrack(), 500);
   });
 
-  // Timeout de segurança
+  // Timeout de seguranca
   const timeoutDelay = Math.min(currentTrackDuration + 30000, Math.max(currentTrackDuration + 10000, 300000));
   trackTimeout = setTimeout(() => {
     if (!isPlaying) return;
@@ -653,12 +662,13 @@ function _doPlayNextTrack() {
     }
   }, timeoutDelay);
 
-  // Libera isTransitioning após confirmar que ffmpeg está rodando
+  // Libera isTransitioning apos confirmar que ffmpeg esta rodando
   setTimeout(() => {
     if (ffmpegProcess === thisFfmpeg && isPlaying) {
       isTransitioning = false;
+      log('info', `✅ Transicao completa: "${thisTrack.title}" tocando normalmente`);
     }
-  }, 1000);
+  }, 1500);
 }
 
 // ================= CHAT =================
@@ -721,16 +731,18 @@ wss.on('connection', (ws, req) => {
     userAgent: userAgent
   });
 
-  log('info', `Cliente WebSocket conectado. Total WS: ${clients.size} | IP: ${clientIp}`);
+  log('info', `🌐 WS Cliente conectado. Total WS: ${clients.size} | IP: ${clientIp}`);
 
   const track = getCurrentTrack();
   const elapsed = trackStartTime > 0 ? Math.floor((Date.now() - trackStartTime) / 1000) : 0;
 
+  // Envia metadata atual imediatamente
   safeWsSend(ws, {
     type: 'metadata',
     data: track || { title: 'Iniciando...', artist: 'Ponto de Umbanda', file: '' }
   });
 
+  // Envia estado atual imediatamente
   safeWsSend(ws, {
     type: 'state',
     data: {
@@ -745,6 +757,7 @@ wss.on('connection', (ws, req) => {
     }
   });
 
+  // Envia historico do chat
   if (chatHistory.length > 0) {
     safeWsSend(ws, {
       type: 'chat_history',
@@ -758,12 +771,14 @@ wss.on('connection', (ws, req) => {
     try {
       const data = JSON.parse(message);
 
+      // Heartbeat do ouvinte
       if (data.type === 'listener_ping' && data.sessionId) {
         updateListenerPing(data.sessionId);
         safeWsSend(ws, { type: 'listener_pong', time: Date.now() });
         return;
       }
 
+      // Registro de ouvinte (compatibilidade)
       if (data.type === 'listener_join' && data.sessionId) {
         if (data.sessionId !== wsSessionId) {
           removeListener(wsSessionId, 'session_update');
@@ -787,13 +802,14 @@ wss.on('connection', (ws, req) => {
         return;
       }
 
+      // ===== CHAT - COMPLETAMENTE ISOLADO DA RADIO =====
       if (data.type === 'join_chat' && data.name) {
         const name = String(data.name).trim().substring(0, 20);
         if (name) {
           chatUsers.set(ws, { name, joinedAt: Date.now(), messageCount: 0, lastMessageTime: 0 });
           broadcast({ type: 'system', message: `👋 ${name} entrou no chat` });
           broadcast({ type: 'online_count', count: getOnlineCount() });
-          log('info', `Chat: ${name} entrou`);
+          log('info', `💬 Chat: ${name} entrou`);
         }
         return;
       }
@@ -803,7 +819,7 @@ wss.on('connection', (ws, req) => {
         const msgText = String(data.message).trim().substring(0, 200);
 
         if (!name || !msgText) {
-          safeWsSend(ws, { type: 'system', message: '⚠️ Nome ou mensagem inválidos.' });
+          safeWsSend(ws, { type: 'system', message: '⚠️ Nome ou mensagem invalidos.' });
           return;
         }
 
@@ -824,8 +840,8 @@ wss.on('connection', (ws, req) => {
         }
 
         const chatMsg = addChatMessage(name, msgText);
-        broadcast(chatMsg);
-        log('info', `Chat: ${name}: ${msgText.substring(0, 50)}`);
+        const sent = broadcast(chatMsg);
+        log('info', `💬 Chat: ${name}: ${msgText.substring(0, 50)} (enviado para ${sent} clientes)`);
         return;
       }
 
@@ -852,7 +868,7 @@ wss.on('connection', (ws, req) => {
       broadcast({ type: 'system', message: `👋 ${userInfo.name} saiu do chat` });
     }
     broadcast({ type: 'online_count', count: getOnlineCount() });
-    log('info', `Cliente desconectado. Total WS: ${clients.size}`);
+    log('info', `🌐 WS Cliente desconectado. Total WS: ${clients.size}`);
   });
 
   ws.on('error', (err) => {
@@ -894,7 +910,7 @@ app.get('/api/status', (req, res) => {
     listeners: stats.active,
     peakListeners: stats.peak,
     dailyUnique: stats.dailyUnique,
-    currentTrack: track || { title: 'Nenhuma música', artist: 'Ponto de Umbanda' },
+    currentTrack: track || { title: 'Nenhuma musica', artist: 'Ponto de Umbanda' },
     isLive: true,
     uptime: process.uptime(),
     playlistSize: PLAYLIST.length,
@@ -911,20 +927,20 @@ app.get('/api/history', (req, res) => {
 // ============================================================
 // ROTA /stream - STREAMING BROADCAST AO VIVO
 // ============================================================
-// CRÍTICO: Todos os ouvintes recebem o MESMO áudio do
-// masterStream. Não cria stream por ouvinte.
+// CRITICO: Todos os ouvintes recebem o MESMO audio do
+// masterStream. Nunca cria stream por ouvinte.
 // ============================================================
 
 app.get('/stream', (req, res) => {
   if (PLAYLIST.length === 0) {
-    return res.status(404).json({ error: 'Nenhuma música disponível' });
+    return res.status(404).json({ error: 'Nenhuma musica disponivel' });
   }
 
   const sessionId = req.query.sid || generateSessionId();
   const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
   const userAgent = req.headers['user-agent'] || 'unknown';
 
-  // Headers CRÍTICOS para streaming ao vivo sem cache
+  // Headers CRITICOS para streaming ao vivo sem cache
   res.setHeader('Content-Type', 'audio/mpeg');
   res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate, private');
   res.setHeader('Pragma', 'no-cache');
@@ -934,7 +950,7 @@ app.get('/stream', (req, res) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
 
   // Headers Icecast/Shoutcast
-  res.setHeader('icy-name', 'Rádio Amigos do Seu Zé');
+  res.setHeader('icy-name', 'Radio Amigos do Seu Ze');
   res.setHeader('icy-genre', 'Ponto de Umbanda');
   res.setHeader('icy-br', '128');
   res.setHeader('icy-sr', '44100');
@@ -953,29 +969,34 @@ app.get('/stream', (req, res) => {
     userAgent: userAgent
   });
 
-  log('info', `🎧 Ouvinte stream conectado: ${sessionId.substring(0, 8)}... (total: ${getActiveListenersCount()})`);
+  log('info', `🎧 Stream ouvinte conectado: ${sessionId.substring(0, 8)}... (total: ${getActiveListenersCount()})`);
 
   // Garante que o masterStream existe
   if (!masterStream) {
+    log('info', 'MasterStream nulo, inicializando...');
     initMasterStream();
   }
 
-  // Inicia a rádio se não estiver tocando
+  // Inicia a radio se nao estiver tocando
   if (!isPlaying) {
+    log('info', 'Radio parada, iniciando...');
     startRadioStream();
+  } else {
+    log('info', `Radio ja tocando. Ouvinte recebera do ponto atual: "${currentTrack ? currentTrack.title : 'desconhecida'}"`);
   }
 
-  // Handlers de desconexão
+  // Handlers de desconexao
   const onReqClose = () => {
     removeListener(sessionId, 'client_disconnect');
-    log('info', `🎧 Ouvinte stream desconectou: ${sessionId.substring(0, 8)}... (restam: ${getActiveListenersCount()})`);
+    log('info', `🎧 Stream ouvinte desconectou: ${sessionId.substring(0, 8)}... (restam: ${getActiveListenersCount()})`);
 
-    // Se não houver mais ouvintes, para a rádio após 30s
+    // Se nao houver mais ouvintes, para a radio apos 30s
     if (getActiveListenersCount() === 0) {
+      log('info', 'Nenhum ouvinte restante. Parando radio em 30s...');
       setTimeout(() => {
         if (getActiveListenersCount() === 0 && isPlaying) {
           stopRadioStream();
-          log('info', '⏹ Rádio parada - sem ouvintes');
+          log('info', '⏹ Radio parada - sem ouvintes');
         }
       }, 30000);
     }
@@ -996,7 +1017,7 @@ app.get('/api/stream', (req, res) => {
   const stats = getListenerStats();
   res.json({
     stream: `${req.protocol}://${req.get('host')}/stream`,
-    title: track ? track.title : 'Nenhuma música',
+    title: track ? track.title : 'Nenhuma musica',
     artist: track ? track.artist : 'Ponto de Umbanda',
     listeners: stats.active,
     peakListeners: stats.peak,
@@ -1015,7 +1036,7 @@ app.get('/api/health', (req, res) => {
     streamClients: stats.active,
     peakListeners: stats.peak,
     dailyUnique: stats.dailyUnique,
-    currentTrack: track || { title: 'Nenhuma música', artist: 'Ponto de Umbanda' },
+    currentTrack: track || { title: 'Nenhuma musica', artist: 'Ponto de Umbanda' },
     playlistSize: PLAYLIST.length,
     isPlaying: isPlaying,
     streaming: isPlaying,
@@ -1024,7 +1045,7 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// ================= LIMPEZA PERIÓDICA =================
+// ================= LIMPEZA PERIODICA =================
 setInterval(() => {
   cleanupDeadListeners();
 }, CLEANUP_INTERVAL_MS);
@@ -1063,7 +1084,7 @@ function gracefulShutdown(signal) {
   });
 
   setTimeout(() => {
-    console.error('Forçando encerramento');
+    console.error('Forcando encerramento');
     process.exit(1);
   }, 10000);
 }
@@ -1088,13 +1109,13 @@ process.on('unhandledRejection', (reason, promise) => {
   await loadPlaylist();
 
   console.log('========================================');
-  console.log('🎵 RÁDIO AMIGOS DO SEU ZÉ');
+  console.log('🎵 RADIO AMIGOS DO SEU ZE');
   console.log('========================================');
   console.log('ROOT_DIR:', ROOT_DIR);
   console.log('FRONTEND_DIR:', FRONTEND_DIR);
   console.log('AUDIO_DIR:', AUDIO_DIR);
   console.log('Audio existe?', fs.existsSync(AUDIO_DIR));
-  console.log(`Músicas: ${PLAYLIST.length}`);
+  console.log(`Musicas: ${PLAYLIST.length}`);
   console.log('');
 
   if (PLAYLIST.length > 0) {
@@ -1109,11 +1130,11 @@ process.on('unhandledRejection', (reason, promise) => {
   }
 
   server.listen(PORT, '0.0.0.0', () => {
-    log('info', `🎵 Rádio rodando na porta ${PORT}`);
+    log('info', `🎵 Radio rodando na porta ${PORT}`);
     log('info', `📡 Stream: http://localhost:${PORT}/stream`);
     log('info', `💬 Chat ao vivo ativo`);
     log('info', `👥 Sistema de ouvintes: ativo`);
-    log('info', `🎧 Todos os ouvintes recebem o MESMO áudio em tempo real`);
+    log('info', `🎧 Todos os ouvintes recebem o MESMO audio em tempo real`);
   });
 })();
 

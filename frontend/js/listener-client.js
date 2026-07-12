@@ -478,8 +478,8 @@
     // Atualizar display inicial
     updateListenerDisplay();
 
-    // Tentar autoplay (pode falhar por políticas do navegador)
-    // playStream();
+    // Tentar iniciar automaticamente
+playStream();
   }
 
   // Iniciar quando DOM estiver pronto
