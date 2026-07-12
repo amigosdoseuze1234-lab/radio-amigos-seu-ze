@@ -103,8 +103,6 @@ async function loadPlaylist() {
     const meta = await getTrackMetadata(filePath);
     const stats = fs.statSync(filePath);
 
-    // FIX: Melhor estimativa de duração considerando bitrate típico de 128kbps
-    // 128kbps = 16KB/s. Mas usamos ffprobe se disponível para duração real
     const estimatedDuration = meta.duration > 0
       ? meta.duration
       : Math.ceil(stats.size / 16000);
@@ -303,7 +301,7 @@ let trackStartTime = 0;
 let currentTrackDuration = 0;
 let trackTimeout = null;
 let isTransitioning = false;
-let currentTrack = null; // FIX: Guarda referência à música atual
+let currentTrack = null;
 
 function getNextTrack() {
   if (PLAYLIST.length === 0) return null;
@@ -313,7 +311,6 @@ function getNextTrack() {
 }
 
 function getCurrentTrack() {
-  // FIX: Retorna a música atual guardada, não calcula pelo índice
   return currentTrack;
 }
 
@@ -430,7 +427,6 @@ function cleanupFfmpeg() {
     const oldProcess = ffmpegProcess;
     ffmpegProcess = null;
 
-    // FIX: Fazer unpipe do masterStream antes de matar o processo
     try {
       if (masterStream && oldProcess.stdout) {
         oldProcess.stdout.unpipe(masterStream);
@@ -500,7 +496,6 @@ function playNextTrack() {
   isTransitioning = true;
   cleanupFfmpeg();
 
-  // FIX: Pequeno delay para garantir que o ffmpeg anterior foi completamente limpo
   setTimeout(() => {
     _doPlayNextTrack();
   }, 100);
@@ -527,7 +522,6 @@ function _doPlayNextTrack() {
     return;
   }
 
-  // FIX: Guarda referência à música atual
   currentTrack = track;
 
   log('info', `▶ Tocando: ${track.title} (${track.duration}s)`);
@@ -559,7 +553,6 @@ function _doPlayNextTrack() {
     detached: false
   });
 
-  // FIX: Guarda referência local ao track para o closure
   const thisTrack = track;
   const thisFfmpeg = ffmpegProcess;
 
@@ -589,20 +582,16 @@ function _doPlayNextTrack() {
       return;
     }
 
-    // FIX: Só processa se este é o ffmpeg atual (evita processar evento de ffmpeg antigo)
     if (ffmpegProcess !== thisFfmpeg && ffmpegProcess !== null) {
       log('info', `Ignorando close de ffmpeg antigo (${thisTrack.title})`);
       return;
     }
 
-    // FIX: Se foi morto por sinal do cleanupFfmpeg, não avança automaticamente
-    // Mas se foi um sinal externo (crash), tenta avançar
     if (signal) {
       const elapsed = Date.now() - trackStartTime;
       const minElapsed = Math.max(currentTrackDuration * 0.5, 3000);
 
       if (elapsed >= minElapsed) {
-        // Provavelmente terminou naturalmente mas recebeu sinal
         log('info', `FFmpeg encerrou por sinal ${signal}, mas música parece completa (${elapsed}ms). Avançando...`);
         isTransitioning = false;
         setTimeout(() => playNextTrack(), 500);
@@ -635,8 +624,6 @@ function _doPlayNextTrack() {
     setTimeout(() => playNextTrack(), 500);
   });
 
-  // FIX: Timeout de segurança mais robusto
-  // Usa um timeout mínimo de 30s além da duração, ou 5 minutos no máximo
   const timeoutDelay = Math.min(currentTrackDuration + 30000, Math.max(currentTrackDuration + 10000, 300000));
   trackTimeout = setTimeout(() => {
     if (!isPlaying) return;
@@ -653,11 +640,8 @@ function _doPlayNextTrack() {
     }
   }, timeoutDelay);
 
-  // FIX: isTransitioning fica true até o ffmpeg estar realmente rodando
-  // Verifica se o ffmpeg iniciou corretamente após 1 segundo
   setTimeout(() => {
     if (ffmpegProcess === thisFfmpeg && isPlaying) {
-      // FFmpeg ainda está rodando, tudo OK
       isTransitioning = false;
     }
   }, 1000);
@@ -714,6 +698,17 @@ wss.on('connection', (ws, req) => {
   const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
   const userAgent = req.headers['user-agent'] || 'unknown';
 
+  // FIX: Gera sessionId automaticamente para TODO cliente WS
+  const wsSessionId = generateSessionId();
+  wsToSession.set(ws, wsSessionId);
+
+  // FIX: Adiciona o cliente WS como ouvinte automaticamente
+  addListener(wsSessionId, {
+    ws: ws,
+    ip: clientIp,
+    userAgent: userAgent
+  });
+
   log('info', `Cliente WebSocket conectado. Total WS: ${clients.size} | IP: ${clientIp}`);
 
   const track = getCurrentTrack();
@@ -753,16 +748,21 @@ wss.on('connection', (ws, req) => {
         return;
       }
 
+      // FIX: listener_join ainda suportado para compatibilidade, mas não é mais necessário
       if (data.type === 'listener_join' && data.sessionId) {
-        wsToSession.set(ws, data.sessionId);
-        addListener(data.sessionId, {
-          ws: ws,
-          ip: clientIp,
-          userAgent: userAgent
-        });
+        // Se o frontend enviar um sessionId diferente, atualiza
+        if (data.sessionId !== wsSessionId) {
+          removeListener(wsSessionId, 'session_update');
+          wsToSession.set(ws, data.sessionId);
+          addListener(data.sessionId, {
+            ws: ws,
+            ip: clientIp,
+            userAgent: userAgent
+          });
+        }
         safeWsSend(ws, {
           type: 'listener_confirmed',
-          sessionId: data.sessionId,
+          sessionId: data.sessionId || wsSessionId,
           stats: getListenerStats()
         });
         return;
@@ -829,6 +829,7 @@ wss.on('connection', (ws, req) => {
     clients.delete(ws);
     chatUsers.delete(ws);
 
+    // FIX: Remove o ouvinte WS automaticamente
     if (sessionId) {
       removeListener(sessionId, 'ws_close');
       wsToSession.delete(ws);
