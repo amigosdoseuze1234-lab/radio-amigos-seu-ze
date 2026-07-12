@@ -121,18 +121,207 @@ async function loadPlaylist() {
   console.log(`✓ ${PLAYLIST.length} músicas carregadas.`);
 }
 
-// ================= STREAMING - ARQUITETURA GLOBAL STREAM =================
-// SOLUÇÃO: Um único masterStream (PassThrough) que NUNCA morre.
-// Cada track spawna um ffmpeg que escreve no masterStream.
-// Clientes HTTP leem do masterStream.
-// Quando um ffmpeg termina, o próximo começa a escrever no mesmo masterStream.
+// ================= SISTEMA DE OUVINTES (NOVO) =================
+/**
+ * Estrutura de um ouvinte:
+ * {
+ *   sessionId: string,      // ID único da sessão
+ *   ws: WebSocket|null,     // Conexão WebSocket associada
+ *   res: Response|null,       // Conexão HTTP do stream
+ *   ip: string,             // IP do cliente
+ *   userAgent: string,      // User-Agent
+ *   connectedAt: number,    // Timestamp de conexão
+ *   lastPing: number,       // Último heartbeat recebido
+ *   isPlaying: boolean      // Se está realmente reproduzindo
+ * }
+ */
 
+const listeners = new Map();        // sessionId -> listener data
+const wsToSession = new Map();      // WebSocket -> sessionId
+const resToSession = new Map();     // Response -> sessionId
+
+// Estatísticas
+let peakListeners = 0;
+let dailyUniqueListeners = new Set();
+let todayDate = new Date().toDateString();
+
+// Configurações
+const LISTENER_TIMEOUT_MS = 30000;      // 30s sem heartbeat = removido
+const CLEANUP_INTERVAL_MS = 15000;      // Verificar a cada 15s
+const HEARTBEAT_INTERVAL_MS = 10000;    // Enviar ping a cada 10s
+
+function generateSessionId() {
+  return `${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
+}
+
+function getTodayKey() {
+  return new Date().toISOString().split('T')[0];
+}
+
+function loadDailyStats() {
+  const statsFile = path.join(LOG_DIR, 'daily_stats.json');
+  try {
+    if (fs.existsSync(statsFile)) {
+      const data = JSON.parse(fs.readFileSync(statsFile, 'utf8'));
+      const today = getTodayKey();
+      if (data.date === today) {
+        dailyUniqueListeners = new Set(data.uniqueListeners || []);
+        peakListeners = data.peakListeners || 0;
+        log('info', `Estatísticas do dia carregadas: ${dailyUniqueListeners.size} únicos, pico ${peakListeners}`);
+      } else {
+        // Novo dia, resetar
+        dailyUniqueListeners.clear();
+        peakListeners = 0;
+        saveDailyStats();
+      }
+    }
+  } catch (e) {
+    log('warn', `Erro ao carregar estatísticas: ${e.message}`);
+  }
+}
+
+function saveDailyStats() {
+  const statsFile = path.join(LOG_DIR, 'daily_stats.json');
+  try {
+    fs.writeFileSync(statsFile, JSON.stringify({
+      date: getTodayKey(),
+      uniqueListeners: Array.from(dailyUniqueListeners),
+      peakListeners: peakListeners,
+      savedAt: new Date().toISOString()
+    }, null, 2));
+  } catch (e) {
+    log('warn', `Erro ao salvar estatísticas: ${e.message}`);
+  }
+}
+
+function addListener(sessionId, data) {
+  // Se já existe com mesmo sessionId, remover antigo primeiro
+  if (listeners.has(sessionId)) {
+    removeListener(sessionId, 'duplicate_session');
+  }
+
+  const now = Date.now();
+  listeners.set(sessionId, {
+    sessionId,
+    ws: data.ws || null,
+    res: data.res || null,
+    ip: data.ip || 'unknown',
+    userAgent: data.userAgent || 'unknown',
+    connectedAt: now,
+    lastPing: now,
+    isPlaying: true
+  });
+
+  // Registrar como ouvinte único do dia
+  dailyUniqueListeners.add(sessionId);
+
+  // Atualizar pico
+  const currentCount = listeners.size;
+  if (currentCount > peakListeners) {
+    peakListeners = currentCount;
+    log('info', `🏆 Novo pico de ouvintes: ${peakListeners}`);
+  }
+
+  saveDailyStats();
+  log('info', `👤 Ouvinte conectado: ${sessionId.substring(0, 8)}... (total: ${currentCount})`);
+  broadcastState();
+  return true;
+}
+
+function removeListener(sessionId, reason = 'unknown') {
+  const listener = listeners.get(sessionId);
+  if (!listener) return false;
+
+  // Limpar recursos
+  if (listener.res && !listener.res.destroyed) {
+    try {
+      listener.res.end();
+    } catch (e) {}
+  }
+  if (listener.ws && listener.ws.readyState === WebSocket.OPEN) {
+    try {
+      listener.ws.close(1001, 'Removido: ' + reason);
+    } catch (e) {}
+  }
+
+  // Remover dos maps
+  if (listener.ws) wsToSession.delete(listener.ws);
+  if (listener.res) resToSession.delete(listener.res);
+  listeners.delete(sessionId);
+
+  log('info', `👋 Ouvinte desconectado: ${sessionId.substring(0, 8)}... (razão: ${reason}, restantes: ${listeners.size})`);
+  broadcastState();
+  return true;
+}
+
+function updateListenerPing(sessionId) {
+  const listener = listeners.get(sessionId);
+  if (listener) {
+    listener.lastPing = Date.now();
+    return true;
+  }
+  return false;
+}
+
+function getActiveListenersCount() {
+  return listeners.size;
+}
+
+function getListenerStats() {
+  return {
+    active: listeners.size,
+    peak: peakListeners,
+    dailyUnique: dailyUniqueListeners.size,
+    today: getTodayKey()
+  };
+}
+
+// ================= LIMPEZA AUTOMÁTICA =================
+function cleanupDeadListeners() {
+  const now = Date.now();
+  let removed = 0;
+
+  for (const [sessionId, listener] of listeners) {
+    // Verificar se a conexão HTTP está morta
+    if (listener.res) {
+      const resDead = listener.res.destroyed || listener.res.writableEnded || listener.res.writableFinished;
+      if (resDead) {
+        removeListener(sessionId, 'dead_http');
+        removed++;
+        continue;
+      }
+    }
+
+    // Verificar se WebSocket está fechado
+    if (listener.ws) {
+      if (listener.ws.readyState === WebSocket.CLOSED || listener.ws.readyState === WebSocket.CLOSING) {
+        removeListener(sessionId, 'dead_ws');
+        removed++;
+        continue;
+      }
+    }
+
+    // Verificar timeout de heartbeat
+    if (now - listener.lastPing > LISTENER_TIMEOUT_MS) {
+      removeListener(sessionId, 'timeout');
+      removed++;
+      continue;
+    }
+  }
+
+  if (removed > 0) {
+    log('info', `🧹 Limpeza: ${removed} ouvintes removidos. Ativos: ${listeners.size}`);
+  }
+}
+
+// Executar limpeza periodicamente
+setInterval(cleanupDeadListeners, CLEANUP_INTERVAL_MS);
+
+// ================= STREAMING - ARQUITETURA GLOBAL STREAM =================
 let currentTrackIndex = 0;
 let isPlaying = false;
 let ffmpegProcess = null;
-let masterStream = null;         // Stream global que nunca morre
-let streamClients = 0;
-let activeResponses = new Set(); // Clientes HTTP conectados
+let masterStream = null;
 let trackStartTime = 0;
 let currentTrackDuration = 0;
 let trackTimeout = null;
@@ -186,10 +375,13 @@ function broadcastMetadata(track) {
 
 function broadcastState() {
   const track = getCurrentTrack();
+  const stats = getListenerStats();
   broadcast({
     type: 'state',
     data: {
-      listeners: streamClients,
+      listeners: stats.active,
+      peakListeners: stats.peak,
+      dailyUnique: stats.dailyUnique,
       currentTrack: track || { title: 'Nenhuma música', artist: 'Ponto de Umbanda', file: '' },
       isLive: true,
       uptime: process.uptime()
@@ -204,38 +396,30 @@ function initMasterStream() {
 
   masterStream = new PassThrough();
 
-  // Quando o masterStream recebe dados, distribui para todos os clientes HTTP
   masterStream.on('data', (chunk) => {
-    const deadResponses = [];
-    activeResponses.forEach(res => {
-      if (res.destroyed || res.writableEnded || res.writableFinished) {
-        deadResponses.push(res);
-        return;
-      }
-      try {
-        const ok = res.write(chunk);
-        if (ok === false) {
-          res.once('drain', () => {});
+    // Distribuir para todos os ouvintes ativos
+    const deadSessions = [];
+    for (const [sessionId, listener] of listeners) {
+      if (listener.res) {
+        if (listener.res.destroyed || listener.res.writableEnded || listener.res.writableFinished) {
+          deadSessions.push(sessionId);
+          continue;
         }
-      } catch (err) {
-        deadResponses.push(res);
+        try {
+          const ok = listener.res.write(chunk);
+          if (ok === false) {
+            listener.res.once('drain', () => {});
+          }
+        } catch (err) {
+          deadSessions.push(sessionId);
+        }
       }
-    });
-
-    deadResponses.forEach(res => {
-      activeResponses.delete(res);
-      try { res.end(); } catch (e) {}
-    });
-
-    if (deadResponses.length > 0) {
-      streamClients = activeResponses.size;
-      broadcastState();
     }
+    deadSessions.forEach(sid => removeListener(sid, 'stream_error'));
   });
 
   masterStream.on('error', (err) => {
     log('error', `Erro no masterStream: ${err.message}`);
-    // Recria o masterStream se der erro crítico
     masterStream = null;
     initMasterStream();
   });
@@ -326,7 +510,6 @@ function playNextTrack() {
   trackStartTime = Date.now();
   currentTrackDuration = track.duration * 1000;
 
-  // Garante que masterStream existe
   if (!masterStream) {
     initMasterStream();
   }
@@ -348,14 +531,7 @@ function playNextTrack() {
     stdio: ['ignore', 'pipe', 'pipe']
   });
 
-  // ================= CORREÇÃO CRÍTICA: FFmpeg → MasterStream =================
-  // O ffmpeg escreve DIRETAMENTE no masterStream
-  // Quando o ffmpeg termina, o masterStream CONTINUA VIVO
-  // O próximo ffmpeg escreve no mesmo masterStream
   ffmpegProcess.stdout.pipe(masterStream, { end: false });
-
-  // IMPORTANTE: Não adicionar listeners no stdout aqui para evitar duplicação
-  // O masterStream já tem o listener 'data' que distribui para os clientes
 
   ffmpegProcess.stdout.on('error', (err) => {
     log('error', `Erro no stdout do ffmpeg: ${err.message}`);
@@ -373,7 +549,6 @@ function playNextTrack() {
     }
   });
 
-  // ================= EVENTO CLOSE DO FFMPEG =================
   ffmpegProcess.on('close', (code, signal) => {
     log('info', `FFmpeg encerrou (código: ${code}, sinal: ${signal})`);
 
@@ -382,14 +557,12 @@ function playNextTrack() {
       return;
     }
 
-    // Se foi encerrado por sinal (cleanup manual), não avança
     if (signal) {
       log('info', `FFmpeg encerrou por sinal ${signal}, não avançando`);
       isTransitioning = false;
       return;
     }
 
-    // Se encerrou com erro
     if (code !== 0 && code !== null) {
       log('warn', `FFmpeg erro ${code}, tentando próxima em 2s`);
       isTransitioning = false;
@@ -397,7 +570,6 @@ function playNextTrack() {
       return;
     }
 
-    // Verifica se a música realmente terminou
     const elapsed = Date.now() - trackStartTime;
     const minElapsed = Math.max(currentTrackDuration * 0.5, 3000);
 
@@ -408,20 +580,14 @@ function playNextTrack() {
       return;
     }
 
-    // Música terminou normalmente → avança para próxima
     log('info', `✅ ${track.title} terminou. Avançando...`);
     isTransitioning = false;
-
-    // Delay curto para evitar glitches
     setTimeout(() => playNextTrack(), 500);
   });
 
-  // Timeout de segurança
   trackTimeout = setTimeout(() => {
     if (!isPlaying) return;
-
     const elapsed = Date.now() - trackStartTime;
-
     if (elapsed > currentTrackDuration + 30000) {
       log('warn', `⏭ Timeout: ${track.title} (${elapsed}ms)`);
       isTransitioning = false;
@@ -432,7 +598,6 @@ function playNextTrack() {
     }
   }, currentTrackDuration + 35000);
 
-  // Libera flag após setup
   setTimeout(() => {
     isTransitioning = false;
   }, 500);
@@ -484,9 +649,12 @@ function checkRateLimit(ws) {
 }
 
 // ================= WEBSOCKET =================
-wss.on('connection', (ws) => {
+wss.on('connection', (ws, req) => {
   clients.add(ws);
-  log('info', `Cliente WebSocket conectado. Total: ${clients.size}`);
+  const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+  const userAgent = req.headers['user-agent'] || 'unknown';
+
+  log('info', `Cliente WebSocket conectado. Total WS: ${clients.size} | IP: ${clientIp}`);
 
   const track = getCurrentTrack();
   safeWsSend(ws, {
@@ -497,7 +665,9 @@ wss.on('connection', (ws) => {
   safeWsSend(ws, {
     type: 'state',
     data: {
-      listeners: streamClients,
+      listeners: getActiveListenersCount(),
+      peakListeners: peakListeners,
+      dailyUnique: dailyUniqueListeners.size,
       currentTrack: track || { title: 'Iniciando...', artist: 'Ponto de Umbanda' },
       isLive: true,
       uptime: process.uptime()
@@ -516,6 +686,29 @@ wss.on('connection', (ws) => {
   ws.on('message', (message) => {
     try {
       const data = JSON.parse(message);
+
+      // Heartbeat do ouvinte
+      if (data.type === 'listener_ping' && data.sessionId) {
+        updateListenerPing(data.sessionId);
+        safeWsSend(ws, { type: 'listener_pong', time: Date.now() });
+        return;
+      }
+
+      // Registro de novo ouvinte
+      if (data.type === 'listener_join' && data.sessionId) {
+        wsToSession.set(ws, data.sessionId);
+        addListener(data.sessionId, {
+          ws: ws,
+          ip: clientIp,
+          userAgent: userAgent
+        });
+        safeWsSend(ws, {
+          type: 'listener_confirmed',
+          sessionId: data.sessionId,
+          stats: getListenerStats()
+        });
+        return;
+      }
 
       if (data.type === 'ping') {
         safeWsSend(ws, { type: 'pong', time: Date.now() });
@@ -573,8 +766,15 @@ wss.on('connection', (ws) => {
 
   ws.on('close', () => {
     const userInfo = chatUsers.get(ws);
+    const sessionId = wsToSession.get(ws);
+
     clients.delete(ws);
     chatUsers.delete(ws);
+
+    if (sessionId) {
+      removeListener(sessionId, 'ws_close');
+      wsToSession.delete(ws);
+    }
 
     if (userInfo) {
       broadcast({ type: 'system', message: `👋 ${userInfo.name} saiu do chat` });
@@ -585,8 +785,13 @@ wss.on('connection', (ws) => {
 
   ws.on('error', (err) => {
     log('error', `Erro no WebSocket: ${err.message}`);
+    const sessionId = wsToSession.get(ws);
+    if (sessionId) {
+      removeListener(sessionId, 'ws_error');
+    }
     clients.delete(ws);
     chatUsers.delete(ws);
+    wsToSession.delete(ws);
   });
 });
 
@@ -612,8 +817,11 @@ app.get('/api/playlist', (req, res) => {
 app.get('/api/status', (req, res) => {
   const track = getCurrentTrack();
   const elapsed = trackStartTime > 0 ? Math.floor((Date.now() - trackStartTime) / 1000) : 0;
+  const stats = getListenerStats();
   res.json({
-    listeners: streamClients,
+    listeners: stats.active,
+    peakListeners: stats.peak,
+    dailyUnique: stats.dailyUnique,
     currentTrack: track || { title: 'Nenhuma música', artist: 'Ponto de Umbanda' },
     isLive: true,
     uptime: process.uptime(),
@@ -634,6 +842,10 @@ app.get('/stream', (req, res) => {
     return res.status(404).json({ error: 'Nenhuma música disponível' });
   }
 
+  const sessionId = req.query.sid || generateSessionId();
+  const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+  const userAgent = req.headers['user-agent'] || 'unknown';
+
   res.setHeader('Content-Type', 'audio/mpeg');
   res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
   res.setHeader('Pragma', 'no-cache');
@@ -642,38 +854,37 @@ app.get('/stream', (req, res) => {
   res.setHeader('icy-name', 'Rádio Amigos do Seu Zé');
   res.setHeader('icy-genre', 'Ponto de Umbanda');
 
+  // Registrar ouvinte
+  resToSession.set(res, sessionId);
+  addListener(sessionId, {
+    res: res,
+    ip: clientIp,
+    userAgent: userAgent
+  });
+
   const onResError = (err) => {
     log('error', `Erro na resposta do stream: ${err.message}`);
-    activeResponses.delete(res);
-    streamClients = activeResponses.size;
+    removeListener(sessionId, 'stream_error');
   };
   res.on('error', onResError);
 
-  activeResponses.add(res);
-  streamClients = activeResponses.size;
-  broadcastState();
+  log('info', `🎧 Ouvinte conectado ao stream: ${sessionId.substring(0, 8)}... (total: ${getActiveListenersCount()})`);
 
-  log('info', `🎧 Cliente conectado ao stream. Total ouvintes: ${streamClients}`);
-
-  // Inicializa masterStream se necessário
   if (!masterStream) {
     initMasterStream();
   }
 
-  // Inicia a rádio se não estiver tocando
   if (!isPlaying) {
     startRadioStream();
   }
 
   const onReqClose = () => {
-    activeResponses.delete(res);
-    streamClients = activeResponses.size;
-    broadcastState();
-    log('info', `🎧 Cliente desconectou. Ouvintes: ${streamClients}`);
+    removeListener(sessionId, 'client_disconnect');
+    log('info', `🎧 Ouvinte desconectou: ${sessionId.substring(0, 8)}... (restam: ${getActiveListenersCount()})`);
 
-    if (streamClients === 0) {
+    if (getActiveListenersCount() === 0) {
       setTimeout(() => {
-        if (activeResponses.size === 0 && isPlaying) {
+        if (getActiveListenersCount() === 0 && isPlaying) {
           stopRadioStream();
           log('info', '⏹ Rádio parada - sem ouvintes');
         }
@@ -687,22 +898,28 @@ app.get('/stream', (req, res) => {
 
 app.get('/api/stream', (req, res) => {
   const track = getCurrentTrack();
+  const stats = getListenerStats();
   res.json({
     stream: `${req.protocol}://${req.get('host')}/stream`,
     title: track ? track.title : 'Nenhuma música',
     artist: track ? track.artist : 'Ponto de Umbanda',
-    listeners: streamClients
+    listeners: stats.active,
+    peakListeners: stats.peak,
+    dailyUnique: stats.dailyUnique
   });
 });
 
 app.get('/api/health', (req, res) => {
   const track = getCurrentTrack();
   const elapsed = trackStartTime > 0 ? Math.floor((Date.now() - trackStartTime) / 1000) : 0;
+  const stats = getListenerStats();
   res.json({
     status: 'ok',
     uptime: process.uptime(),
     wsClients: clients.size,
-    streamClients: streamClients,
+    streamClients: stats.active,
+    peakListeners: stats.peak,
+    dailyUnique: stats.dailyUnique,
     currentTrack: track || { title: 'Nenhuma música', artist: 'Ponto de Umbanda' },
     playlistSize: PLAYLIST.length,
     isPlaying: isPlaying,
@@ -714,29 +931,23 @@ app.get('/api/health', (req, res) => {
 
 // ================= LIMPEZA PERIÓDICA =================
 setInterval(() => {
-  const before = activeResponses.size;
-  const dead = [];
-  activeResponses.forEach(res => {
-    if (res.destroyed || res.writableEnded || res.writableFinished) {
-      dead.push(res);
-    }
-  });
-  dead.forEach(res => activeResponses.delete(res));
-  if (dead.length > 0) {
-    streamClients = activeResponses.size;
-    broadcastState();
-    log('info', `🧹 Limpados ${dead.length} órfãos. Ouvintes: ${streamClients} (antes: ${before})`);
-  }
-}, 30000);
+  cleanupDeadListeners();
+}, CLEANUP_INTERVAL_MS);
 
 setInterval(() => {
   broadcastState();
 }, 10000);
 
+// Salvar estatísticas periodicamente
+setInterval(() => {
+  saveDailyStats();
+}, 60000);
+
 // ================= GRACEFUL SHUTDOWN =================
 function gracefulShutdown(signal) {
   log('info', `Recebido ${signal}. Encerrando...`);
 
+  saveDailyStats();
   stopRadioStream();
 
   if (masterStream) {
@@ -744,14 +955,14 @@ function gracefulShutdown(signal) {
     masterStream = null;
   }
 
+  // Limpar todos os ouvintes
+  for (const [sessionId] of listeners) {
+    removeListener(sessionId, 'shutdown');
+  }
+
   clients.forEach(ws => {
     try { ws.close(1001, 'Servidor reiniciando'); } catch (e) {}
   });
-
-  activeResponses.forEach(res => {
-    try { res.end(); } catch (e) {}
-  });
-  activeResponses.clear();
 
   server.close(() => {
     log('info', 'Servidor HTTP fechado');
@@ -770,6 +981,7 @@ process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 process.on('uncaughtException', (err) => {
   log('error', `UNCAUGHT EXCEPTION: ${err.message}`);
   log('error', err.stack);
+  saveDailyStats();
   gracefulShutdown('uncaughtException');
 });
 
@@ -779,6 +991,7 @@ process.on('unhandledRejection', (reason, promise) => {
 
 // ================= START =================
 (async () => {
+  loadDailyStats();
   await loadPlaylist();
 
   console.log('========================================');
@@ -806,6 +1019,7 @@ process.on('unhandledRejection', (reason, promise) => {
     log('info', `🎵 Rádio rodando na porta ${PORT}`);
     log('info', `📡 Stream: http://localhost:${PORT}/stream`);
     log('info', `💬 Chat ao vivo ativo`);
+    log('info', `👥 Sistema de ouvintes: ativo`);
     log('info', `🎧 A rádio inicia automaticamente quando o primeiro ouvinte conecta`);
   });
 })();
