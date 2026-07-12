@@ -290,7 +290,10 @@ function cleanupDeadListeners() {
 setInterval(cleanupDeadListeners, CLEANUP_INTERVAL_MS);
 
 // ============================================================
-// STREAMING BROADCAST - ARQUITETURA DE RÁDIO AO VIVO
+// STREAMING BROADCAST - RÁDIO AO VIVO REAL
+// ============================================================
+// Uma única transmissão contínua. Todos os ouvintes recebem
+// exatamente o mesmo áudio no mesmo ponto do tempo.
 // ============================================================
 
 let currentTrackIndex = 0;
@@ -302,6 +305,7 @@ let currentTrackDuration = 0;
 let trackTimeout = null;
 let isTransitioning = false;
 let currentTrack = null;
+let radioStartTime = 0; // Quando a rádio começou a tocar
 
 function getNextTrack() {
   if (PLAYLIST.length === 0) return null;
@@ -350,6 +354,7 @@ function broadcastMetadata(track) {
 function broadcastState() {
   const track = getCurrentTrack();
   const stats = getListenerStats();
+  const elapsed = trackStartTime > 0 ? Math.floor((Date.now() - trackStartTime) / 1000) : 0;
   broadcast({
     type: 'state',
     data: {
@@ -358,7 +363,9 @@ function broadcastState() {
       dailyUnique: stats.dailyUnique,
       currentTrack: track || { title: 'Nenhuma música', artist: 'Ponto de Umbanda', file: '' },
       isLive: true,
-      uptime: process.uptime()
+      uptime: process.uptime(),
+      elapsed: elapsed,
+      duration: track ? track.duration : 0
     }
   });
 }
@@ -470,8 +477,9 @@ function startRadioStream() {
   }
 
   isPlaying = true;
+  radioStartTime = Date.now();
   initMasterStream();
-  log('info', '🎵 Iniciando streaming da rádio...');
+  log('info', '🎵 Iniciando streaming da rádio ao vivo...');
   playNextTrack();
 }
 
@@ -480,6 +488,7 @@ function stopRadioStream() {
   cleanupFfmpeg();
   destroyMasterStream();
   currentTrack = null;
+  radioStartTime = 0;
   log('info', '⏹ Rádio parada');
 }
 
@@ -496,9 +505,10 @@ function playNextTrack() {
   isTransitioning = true;
   cleanupFfmpeg();
 
+  // Delay para garantir limpeza completa do ffmpeg anterior
   setTimeout(() => {
     _doPlayNextTrack();
-  }, 100);
+  }, 200);
 }
 
 function _doPlayNextTrack() {
@@ -582,11 +592,13 @@ function _doPlayNextTrack() {
       return;
     }
 
+    // Ignora eventos de ffmpeg antigo
     if (ffmpegProcess !== thisFfmpeg && ffmpegProcess !== null) {
       log('info', `Ignorando close de ffmpeg antigo (${thisTrack.title})`);
       return;
     }
 
+    // Se foi morto por sinal do cleanupFfmpeg
     if (signal) {
       const elapsed = Date.now() - trackStartTime;
       const minElapsed = Math.max(currentTrackDuration * 0.5, 3000);
@@ -624,12 +636,13 @@ function _doPlayNextTrack() {
     setTimeout(() => playNextTrack(), 500);
   });
 
+  // Timeout de segurança
   const timeoutDelay = Math.min(currentTrackDuration + 30000, Math.max(currentTrackDuration + 10000, 300000));
   trackTimeout = setTimeout(() => {
     if (!isPlaying) return;
     const elapsed = Date.now() - trackStartTime;
     if (elapsed > currentTrackDuration + 30000) {
-      log('warn', `⏭ Timeout de segurança: ${thisTrack.title} (${elapsed}ms > ${currentTrackDuration + 30000}ms)`);
+      log('warn', `⏭ Timeout: ${thisTrack.title} (${elapsed}ms)`);
       if (ffmpegProcess === thisFfmpeg) {
         isTransitioning = false;
         cleanupFfmpeg();
@@ -640,6 +653,7 @@ function _doPlayNextTrack() {
     }
   }, timeoutDelay);
 
+  // Libera isTransitioning após confirmar que ffmpeg está rodando
   setTimeout(() => {
     if (ffmpegProcess === thisFfmpeg && isPlaying) {
       isTransitioning = false;
@@ -698,11 +712,9 @@ wss.on('connection', (ws, req) => {
   const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
   const userAgent = req.headers['user-agent'] || 'unknown';
 
-  // FIX: Gera sessionId automaticamente para TODO cliente WS
   const wsSessionId = generateSessionId();
   wsToSession.set(ws, wsSessionId);
 
-  // FIX: Adiciona o cliente WS como ouvinte automaticamente
   addListener(wsSessionId, {
     ws: ws,
     ip: clientIp,
@@ -712,6 +724,8 @@ wss.on('connection', (ws, req) => {
   log('info', `Cliente WebSocket conectado. Total WS: ${clients.size} | IP: ${clientIp}`);
 
   const track = getCurrentTrack();
+  const elapsed = trackStartTime > 0 ? Math.floor((Date.now() - trackStartTime) / 1000) : 0;
+
   safeWsSend(ws, {
     type: 'metadata',
     data: track || { title: 'Iniciando...', artist: 'Ponto de Umbanda', file: '' }
@@ -725,7 +739,9 @@ wss.on('connection', (ws, req) => {
       dailyUnique: dailyUniqueListeners.size,
       currentTrack: track || { title: 'Iniciando...', artist: 'Ponto de Umbanda' },
       isLive: true,
-      uptime: process.uptime()
+      uptime: process.uptime(),
+      elapsed: elapsed,
+      duration: track ? track.duration : 0
     }
   });
 
@@ -748,9 +764,7 @@ wss.on('connection', (ws, req) => {
         return;
       }
 
-      // FIX: listener_join ainda suportado para compatibilidade, mas não é mais necessário
       if (data.type === 'listener_join' && data.sessionId) {
-        // Se o frontend enviar um sessionId diferente, atualiza
         if (data.sessionId !== wsSessionId) {
           removeListener(wsSessionId, 'session_update');
           wsToSession.set(ws, data.sessionId);
@@ -829,7 +843,6 @@ wss.on('connection', (ws, req) => {
     clients.delete(ws);
     chatUsers.delete(ws);
 
-    // FIX: Remove o ouvinte WS automaticamente
     if (sessionId) {
       removeListener(sessionId, 'ws_close');
       wsToSession.delete(ws);
@@ -898,6 +911,9 @@ app.get('/api/history', (req, res) => {
 // ============================================================
 // ROTA /stream - STREAMING BROADCAST AO VIVO
 // ============================================================
+// CRÍTICO: Todos os ouvintes recebem o MESMO áudio do
+// masterStream. Não cria stream por ouvinte.
+// ============================================================
 
 app.get('/stream', (req, res) => {
   if (PLAYLIST.length === 0) {
@@ -908,12 +924,16 @@ app.get('/stream', (req, res) => {
   const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
   const userAgent = req.headers['user-agent'] || 'unknown';
 
+  // Headers CRÍTICOS para streaming ao vivo sem cache
   res.setHeader('Content-Type', 'audio/mpeg');
-  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate, private');
   res.setHeader('Pragma', 'no-cache');
-  res.setHeader('Expires', '0');
+  res.setHeader('Expires', '-1');
   res.setHeader('Connection', 'keep-alive');
   res.setHeader('Accept-Ranges', 'none');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+
+  // Headers Icecast/Shoutcast
   res.setHeader('icy-name', 'Rádio Amigos do Seu Zé');
   res.setHeader('icy-genre', 'Ponto de Umbanda');
   res.setHeader('icy-br', '128');
@@ -922,8 +942,10 @@ app.get('/stream', (req, res) => {
   res.setHeader('icy-pub', '1');
   res.setHeader('Access-Control-Allow-Origin', '*');
 
+  // Envia headers imediatamente
   res.flushHeaders();
 
+  // Registra ouvinte
   resToSession.set(res, sessionId);
   addListener(sessionId, {
     res: res,
@@ -931,20 +953,24 @@ app.get('/stream', (req, res) => {
     userAgent: userAgent
   });
 
-  log('info', `🎧 Ouvinte conectado ao stream: ${sessionId.substring(0, 8)}... (total: ${getActiveListenersCount()})`);
+  log('info', `🎧 Ouvinte stream conectado: ${sessionId.substring(0, 8)}... (total: ${getActiveListenersCount()})`);
 
+  // Garante que o masterStream existe
   if (!masterStream) {
     initMasterStream();
   }
 
+  // Inicia a rádio se não estiver tocando
   if (!isPlaying) {
     startRadioStream();
   }
 
+  // Handlers de desconexão
   const onReqClose = () => {
     removeListener(sessionId, 'client_disconnect');
-    log('info', `🎧 Ouvinte desconectou: ${sessionId.substring(0, 8)}... (restam: ${getActiveListenersCount()})`);
+    log('info', `🎧 Ouvinte stream desconectou: ${sessionId.substring(0, 8)}... (restam: ${getActiveListenersCount()})`);
 
+    // Se não houver mais ouvintes, para a rádio após 30s
     if (getActiveListenersCount() === 0) {
       setTimeout(() => {
         if (getActiveListenersCount() === 0 && isPlaying) {
@@ -1087,7 +1113,7 @@ process.on('unhandledRejection', (reason, promise) => {
     log('info', `📡 Stream: http://localhost:${PORT}/stream`);
     log('info', `💬 Chat ao vivo ativo`);
     log('info', `👥 Sistema de ouvintes: ativo`);
-    log('info', `🎧 A rádio inicia automaticamente quando o primeiro ouvinte conecta`);
+    log('info', `🎧 Todos os ouvintes recebem o MESMO áudio em tempo real`);
   });
 })();
 
