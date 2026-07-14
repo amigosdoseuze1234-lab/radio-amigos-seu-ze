@@ -122,7 +122,7 @@ async function loadPlaylist() {
 }
 
 // ================= STREAMING - ARQUITETURA GLOBAL STREAM =================
-// CORREÇÃO: Sistema de sincronização global para todos os ouvintes
+// CORREÇÃO CRÍTICA: Sistema de sincronização global para todos os ouvintes
 // Todos ouvem a MESMA música no MESMO ponto de tempo
 
 let currentTrackIndex = 0;
@@ -136,7 +136,7 @@ let currentTrackDuration = 0;
 let trackTimeout = null;
 let isTransitioning = false;
 
-// NOVO: Estado global compartilhado para sincronização perfeita
+// CORREÇÃO: Estado global compartilhado para sincronização perfeita
 let globalState = {
   currentTrack: null,
   trackStartTime: 0,
@@ -144,17 +144,22 @@ let globalState = {
   elapsed: 0
 };
 
+// ================= FUNÇÕES DE CONTROLE DA PLAYLIST =================
+// CORREÇÃO: getCurrentTrack retorna a música que ESTÁ tocando agora
+function getCurrentTrack() {
+  if (PLAYLIST.length === 0) return null;
+  // currentTrackIndex já aponta para a PRÓXIMA música
+  // A música atual é o índice anterior (com wrap-around)
+  const idx = (currentTrackIndex - 1 + PLAYLIST.length) % PLAYLIST.length;
+  return PLAYLIST[idx];
+}
+
+// CORREÇÃO: getNextTrack avança o índice e retorna a nova música
 function getNextTrack() {
   if (PLAYLIST.length === 0) return null;
   const track = PLAYLIST[currentTrackIndex];
   currentTrackIndex = (currentTrackIndex + 1) % PLAYLIST.length;
   return track;
-}
-
-function getCurrentTrack() {
-  if (PLAYLIST.length === 0) return null;
-  const idx = (currentTrackIndex - 1 + PLAYLIST.length) % PLAYLIST.length;
-  return PLAYLIST[idx];
 }
 
 // ================= BROADCAST SEGURO =================
@@ -179,6 +184,7 @@ function broadcast(data) {
   });
 }
 
+// CORREÇÃO: broadcastMetadata agora sincroniza corretamente o estado global
 function broadcastMetadata(track) {
   globalState.currentTrack = track;
   globalState.trackStartTime = Date.now();
@@ -190,15 +196,16 @@ function broadcastMetadata(track) {
       artist: track.artist,
       file: track.file,
       duration: track.duration,
-      startTime: globalState.trackStartTime  // NOVO: envia timestamp de início
+      startTime: globalState.trackStartTime
     }
   });
 }
 
+// CORREÇÃO: broadcastState calcula elapsed corretamente
 function broadcastState() {
-  const track = globalState.currentTrack || getCurrentTrack();
-  const elapsed = globalState.trackStartTime > 0 
-    ? Math.floor((Date.now() - globalState.trackStartTime) / 1000) 
+  const track = globalState.currentTrack;
+  const elapsed = globalState.trackStartTime > 0
+    ? Math.floor((Date.now() - globalState.trackStartTime) / 1000)
     : 0;
 
   broadcast({
@@ -208,9 +215,9 @@ function broadcastState() {
       currentTrack: track || { title: 'Nenhuma música', artist: 'Ponto de Umbanda', file: '' },
       isLive: true,
       uptime: process.uptime(),
-      elapsed: elapsed,
+      elapsed: Math.min(elapsed, track ? track.duration : 0),
       duration: track ? track.duration : 0,
-      trackStartTime: globalState.trackStartTime  // NOVO: sincronização temporal
+      trackStartTime: globalState.trackStartTime
     }
   });
 }
@@ -288,6 +295,7 @@ function cleanupFfmpeg() {
   }
 }
 
+// CORREÇÃO: startRadioStream garante que a rádio comece do INÍCIO da música
 function startRadioStream() {
   if (PLAYLIST.length === 0) {
     log('error', 'Nenhuma música na playlist');
@@ -311,6 +319,18 @@ function stopRadioStream() {
   cleanupFfmpeg();
   log('info', '⏹ Rádio parada');
 }
+
+// ================= PLAYNEXTTRACK - CORREÇÃO CRÍTICA =================
+// PROBLEMA: A música começava no meio porque:
+// 1. O ffmpeg era iniciado sem controle de quando começou
+// 2. O trackStartTime era setado ANTES do ffmpeg realmente começar a tocar
+// 3. Clientes que conectavam depois calculavam elapsed desde trackStartTime,
+//    mas o áudio já tinha avançado
+//
+// SOLUÇÃO:
+// 1. Sempre iniciar música do INÍCIO (sem seek)
+// 2. Só atualizar trackStartTime DEPOIS que o ffmpeg realmente começar a emitir dados
+// 3. Buffer inicial para garantir sincronia entre metadata e áudio
 
 function playNextTrack() {
   if (!isPlaying) return;
@@ -337,16 +357,10 @@ function playNextTrack() {
     return;
   }
 
-  log('info', `▶ Tocando: ${track.title} (${track.duration}s)`);
+  log('info', `▶ Preparando: ${track.title} (${track.duration}s)`);
 
-  // CORREÇÃO: Atualiza estado global ANTES de broadcast
-  globalState.currentTrack = track;
-  globalState.trackStartTime = Date.now();
-
-  broadcastMetadata(track);
-  broadcastState();
-
-  trackStartTime = Date.now();
+  // CORREÇÃO CRÍTICA: Não setar trackStartTime ainda!
+  // Vamos esperar o ffmpeg realmente começar a emitir dados
   currentTrackDuration = track.duration * 1000;
 
   if (!masterStream) {
@@ -355,6 +369,16 @@ function playNextTrack() {
 
   const ffmpegPath = process.env.FFMPEG_PATH || 'ffmpeg';
 
+  // CORREÇÃO: Parâmetros ffmpeg otimizados para streaming ao vivo
+  // -re: leitura em tempo real (não acelerada)
+  // -i: input file
+  // -map_metadata -1: remove metadados ID3 do stream
+  // -acodec libmp3lame: codec MP3
+  // -ab 128k: bitrate
+  // -ar 44100: sample rate
+  // -ac 2: stereo
+  // -f mp3: formato de saída
+  // -flush_packets 1: flush imediato
   ffmpegProcess = spawn(ffmpegPath, [
     '-re',
     '-i', track.path,
@@ -370,7 +394,45 @@ function playNextTrack() {
     stdio: ['ignore', 'pipe', 'pipe']
   });
 
-  ffmpegProcess.stdout.pipe(masterStream, { end: false });
+  // CORREÇÃO CRÍTICA: Buffer de sincronização
+  // Esperamos o primeiro chunk de dados antes de anunciar a música
+  let firstChunkReceived = false;
+  let syncBuffer = [];
+  const SYNC_BUFFER_SIZE = 8; // ~8 chunks para estabilizar o stream
+
+  ffmpegProcess.stdout.on('data', (chunk) => {
+    // Primeira vez que recebemos dados do ffmpeg
+    if (!firstChunkReceived) {
+      firstChunkReceived = true;
+      // CORREÇÃO: Agora sim, setamos o trackStartTime quando o áudio REALMENTE começa
+      globalState.currentTrack = track;
+      globalState.trackStartTime = Date.now();
+      trackStartTime = Date.now();
+
+      log('info', `▶▶ Tocando: ${track.title} (iniciado em ${new Date().toISOString()})`);
+
+      // Broadcast metadata para todos os clientes WS
+      broadcastMetadata(track);
+      broadcastState();
+    }
+
+    // Buffer de sincronização: acumula os primeiros chunks
+    if (syncBuffer.length < SYNC_BUFFER_SIZE) {
+      syncBuffer.push(chunk);
+      return;
+    }
+
+    // Depois do buffer cheio, envia o buffer acumulado + chunks novos
+    if (syncBuffer.length === SYNC_BUFFER_SIZE) {
+      // Envia o buffer acumulado de uma vez
+      const bufferedData = Buffer.concat(syncBuffer);
+      syncBuffer = null; // libera memória
+      masterStream.write(bufferedData);
+    }
+
+    // Envia chunks normais
+    masterStream.write(chunk);
+  });
 
   ffmpegProcess.stdout.on('error', (err) => {
     log('error', `Erro no stdout do ffmpeg: ${err.message}`);
@@ -409,6 +471,7 @@ function playNextTrack() {
       return;
     }
 
+    // CORREÇÃO: Verificar se a música tocou pelo tempo mínimo
     const elapsed = Date.now() - trackStartTime;
     const minElapsed = Math.max(currentTrackDuration * 0.5, 3000);
 
@@ -424,12 +487,13 @@ function playNextTrack() {
     setTimeout(() => playNextTrack(), 500);
   });
 
+  // CORREÇÃO: Timeout mais generoso para músicas longas
   trackTimeout = setTimeout(() => {
     if (!isPlaying) return;
 
     const elapsed = Date.now() - trackStartTime;
 
-    if (elapsed > currentTrackDuration + 30000) {
+    if (elapsed > currentTrackDuration + 60000) {
       log('warn', `⏭ Timeout: ${track.title} (${elapsed}ms)`);
       isTransitioning = false;
       cleanupFfmpeg();
@@ -437,7 +501,7 @@ function playNextTrack() {
         setTimeout(() => playNextTrack(), 500);
       }
     }
-  }, currentTrackDuration + 35000);
+  }, currentTrackDuration + 65000);
 
   setTimeout(() => {
     isTransitioning = false;
@@ -494,23 +558,38 @@ wss.on('connection', (ws) => {
   clients.add(ws);
   log('info', `Cliente WebSocket conectado. Total: ${clients.size}`);
 
-  // CORREÇÃO: Envia estado atual imediatamente ao conectar
-  const track = globalState.currentTrack || getCurrentTrack();
-  const elapsed = globalState.trackStartTime > 0 
-    ? Math.floor((Date.now() - globalState.trackStartTime) / 1000) 
+  // CORREÇÃO CRÍTICA: Envia estado atual com elapsed CORRETO
+  const track = globalState.currentTrack;
+  const elapsed = globalState.trackStartTime > 0
+    ? Math.floor((Date.now() - globalState.trackStartTime) / 1000)
     : 0;
 
-  safeWsSend(ws, {
-    type: 'metadata',
-    data: {
-      title: track ? track.title : 'Iniciando...',
-      artist: track ? track.artist : 'Ponto de Umbanda',
-      file: track ? track.file : '',
-      duration: track ? track.duration : 0,
-      startTime: globalState.trackStartTime,
-      elapsed: elapsed
-    }
-  });
+  // Se a rádio está tocando, envia metadata da música atual
+  if (track && isPlaying) {
+    safeWsSend(ws, {
+      type: 'metadata',
+      data: {
+        title: track.title,
+        artist: track.artist,
+        file: track.file,
+        duration: track.duration,
+        startTime: globalState.trackStartTime,
+        elapsed: Math.min(elapsed, track.duration)
+      }
+    });
+  } else {
+    safeWsSend(ws, {
+      type: 'metadata',
+      data: {
+        title: 'Iniciando...',
+        artist: 'Ponto de Umbanda',
+        file: '',
+        duration: 0,
+        startTime: 0,
+        elapsed: 0
+      }
+    });
+  }
 
   safeWsSend(ws, {
     type: 'state',
@@ -519,7 +598,7 @@ wss.on('connection', (ws) => {
       currentTrack: track || { title: 'Iniciando...', artist: 'Ponto de Umbanda', file: '' },
       isLive: true,
       uptime: process.uptime(),
-      elapsed: elapsed,
+      elapsed: track ? Math.min(elapsed, track.duration) : 0,
       duration: track ? track.duration : 0,
       trackStartTime: globalState.trackStartTime
     }
@@ -543,17 +622,21 @@ wss.on('connection', (ws) => {
         return;
       }
 
-      // CORREÇÃO: listener_ping atualiza contagem de ouvintes WS
       if (data.type === 'listener_ping') {
-        // Apenas responde com pong, não afeta stream
-        safeWsSend(ws, { 
-          type: 'listener_pong', 
+        const track = globalState.currentTrack;
+        const elapsed = globalState.trackStartTime > 0
+          ? Math.floor((Date.now() - globalState.trackStartTime) / 1000)
+          : 0;
+
+        safeWsSend(ws, {
+          type: 'listener_pong',
           time: Date.now(),
           listeners: streamClients,
           trackStartTime: globalState.trackStartTime,
-          elapsed: globalState.trackStartTime > 0 
-            ? Math.floor((Date.now() - globalState.trackStartTime) / 1000) 
-            : 0
+          elapsed: track ? Math.min(elapsed, track.duration) : 0,
+          duration: track ? track.duration : 0,
+          isPlaying: isPlaying,
+          currentTrack: track ? track.title : 'Iniciando...'
         });
         return;
       }
@@ -645,10 +728,11 @@ app.get('/api/playlist', (req, res) => {
   })));
 });
 
+// CORREÇÃO: /api/status retorna elapsed sincronizado
 app.get('/api/status', (req, res) => {
-  const track = globalState.currentTrack || getCurrentTrack();
-  const elapsed = globalState.trackStartTime > 0 
-    ? Math.floor((Date.now() - globalState.trackStartTime) / 1000) 
+  const track = globalState.currentTrack;
+  const elapsed = globalState.trackStartTime > 0
+    ? Math.floor((Date.now() - globalState.trackStartTime) / 1000)
     : 0;
   res.json({
     listeners: streamClients,
@@ -657,9 +741,10 @@ app.get('/api/status', (req, res) => {
     uptime: process.uptime(),
     playlistSize: PLAYLIST.length,
     currentIndex: currentTrackIndex,
-    elapsed: elapsed,
+    elapsed: track ? Math.min(elapsed, track.duration) : 0,
     duration: track ? track.duration : 0,
-    trackStartTime: globalState.trackStartTime
+    trackStartTime: globalState.trackStartTime,
+    isPlaying: isPlaying
   });
 });
 
@@ -723,23 +808,26 @@ app.get('/stream', (req, res) => {
 });
 
 app.get('/api/stream', (req, res) => {
-  const track = globalState.currentTrack || getCurrentTrack();
+  const track = globalState.currentTrack;
+  const elapsed = globalState.trackStartTime > 0
+    ? Math.floor((Date.now() - globalState.trackStartTime) / 1000)
+    : 0;
   res.json({
     stream: `${req.protocol}://${req.get('host')}/stream`,
     title: track ? track.title : 'Nenhuma música',
     artist: track ? track.artist : 'Ponto de Umbanda',
     listeners: streamClients,
     trackStartTime: globalState.trackStartTime,
-    elapsed: globalState.trackStartTime > 0 
-      ? Math.floor((Date.now() - globalState.trackStartTime) / 1000) 
-      : 0
+    elapsed: track ? Math.min(elapsed, track.duration) : 0,
+    duration: track ? track.duration : 0,
+    isPlaying: isPlaying
   });
 });
 
 app.get('/api/health', (req, res) => {
-  const track = globalState.currentTrack || getCurrentTrack();
-  const elapsed = globalState.trackStartTime > 0 
-    ? Math.floor((Date.now() - globalState.trackStartTime) / 1000) 
+  const track = globalState.currentTrack;
+  const elapsed = globalState.trackStartTime > 0
+    ? Math.floor((Date.now() - globalState.trackStartTime) / 1000)
     : 0;
   res.json({
     status: 'ok',
@@ -750,7 +838,7 @@ app.get('/api/health', (req, res) => {
     playlistSize: PLAYLIST.length,
     isPlaying: isPlaying,
     streaming: isPlaying,
-    elapsed: elapsed,
+    elapsed: track ? Math.min(elapsed, track.duration) : 0,
     duration: track ? track.duration : 0,
     trackStartTime: globalState.trackStartTime
   });
@@ -773,10 +861,10 @@ setInterval(() => {
   }
 }, 30000);
 
-// CORREÇÃO: Broadcast de estado mais frequente para sincronização em tempo real
+// CORREÇÃO: Broadcast de estado mais frequente para sincronização
 setInterval(() => {
   broadcastState();
-}, 5000);  // De 10s para 5s
+}, 3000);
 
 // ================= GRACEFUL SHUTDOWN =================
 function gracefulShutdown(signal) {
