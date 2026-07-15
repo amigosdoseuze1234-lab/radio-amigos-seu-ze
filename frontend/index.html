@@ -945,8 +945,6 @@
         }
     </style>
 <base target="_blank">
-<base target="_blank">
-<base target="_blank">
 </head>
 <body>
     <!-- Header -->
@@ -1106,6 +1104,768 @@
            webkit-playsinline
            x-webkit-airplay="allow"></audio>
 
-        <script src="radio-unified-v7.js"></script>
+    <script>
+        /**
+         * Rádio Amigos do Seu Zé - Player em Tempo Real
+         * Streaming contínuo, sem controle de playlist
+         * Chat estilo WhatsApp com som de notificação
+         */
+
+        (function() {
+            'use strict';
+
+            const RadioPlayer = {
+                // DOM Elements
+                audio: null,
+                playBtn: null,
+                muteBtn: null,
+                volumeSlider: null,
+                trackTitle: null,
+                trackArtist: null,
+                progressBar: null,
+                progressFill: null,
+                currentTime: null,
+                statusBadge: null,
+                statusText: null,
+                errorMessage: null,
+                visualizer: null,
+                toast: null,
+                interactionOverlay: null,
+                startAudioBtn: null,
+                albumArt: null,
+
+                // Chat Elements
+                chatMessages: null,
+                chatInput: null,
+                chatSendBtn: null,
+                chatNameOverlay: null,
+                chatNameField: null,
+                chatNameBtn: null,
+                chatInputArea: null,
+                chatTyping: null,
+                chatStatusText: null,
+                typingName: null,
+
+                // State
+                isPlaying: false,
+                isMuted: false,
+                previousVolume: 80,
+                visualizerInterval: null,
+                ws: null,
+                wsReconnectTimer: null,
+                isMobile: false,
+                isIOS: false,
+                isAndroid: false,
+                isSafari: false,
+                audioContext: null,
+                userInteracted: false,
+                autoplayBlocked: false,
+                currentTrack: null,
+
+                // Chat State
+                chatUserName: '',
+                chatMessagesList: [],
+                msgSound: null,
+                lastMsgTime: 0,
+
+                init() {
+                    this.detectDevice();
+                    this.cacheElements();
+                    this.initNotificationSound();
+                    if (!this.audio) {
+                        console.error('Audio element not found');
+                        return;
+                    }
+                    this.bindEvents();
+                    this.setupAudioEvents();
+                    this.connectWebSocket();
+                    this.setVolume(80);
+                    this.initChat();
+                    this.checkAutoplayPolicy();
+                },
+
+                detectDevice() {
+                    const ua = navigator.userAgent.toLowerCase();
+                    this.isIOS = /iphone|ipad|ipod/.test(ua);
+                    this.isAndroid = /android/.test(ua);
+                    this.isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+                    this.isMobile = this.isIOS || this.isAndroid || /mobile/.test(ua);
+                    console.log('Device:', this.isIOS ? 'iOS' : this.isAndroid ? 'Android' : 'Desktop');
+                },
+
+                cacheElements() {
+                    this.audio = document.getElementById('audioPlayer');
+                    this.playBtn = document.getElementById('playBtn');
+                    this.muteBtn = document.getElementById('muteBtn');
+                    this.volumeSlider = document.getElementById('volumeSlider');
+                    this.trackTitle = document.getElementById('trackTitle');
+                    this.trackArtist = document.getElementById('trackArtist');
+                    this.progressBar = document.getElementById('progressBar');
+                    this.progressFill = document.getElementById('progressFill');
+                    this.currentTime = document.getElementById('currentTime');
+                    this.statusBadge = document.getElementById('statusBadge');
+                    this.statusText = document.getElementById('statusText');
+                    this.errorMessage = document.getElementById('errorMessage');
+                    this.visualizer = document.getElementById('visualizer');
+                    this.toast = document.getElementById('toast');
+                    this.interactionOverlay = document.getElementById('interactionOverlay');
+                    this.startAudioBtn = document.getElementById('startAudioBtn');
+                    this.albumArt = document.getElementById('albumArt');
+
+                    // Chat elements
+                    this.chatMessages = document.getElementById('chatMessages');
+                    this.chatInput = document.getElementById('chatInput');
+                    this.chatSendBtn = document.getElementById('chatSendBtn');
+                    this.chatNameOverlay = document.getElementById('chatNameOverlay');
+                    this.chatNameField = document.getElementById('chatNameField');
+                    this.chatNameBtn = document.getElementById('chatNameBtn');
+                    this.chatInputArea = document.getElementById('chatInputArea');
+                    this.chatTyping = document.getElementById('chatTyping');
+                    this.chatStatusText = document.getElementById('chatStatusText');
+                    this.typingName = document.getElementById('typingName');
+                },
+
+                // ===== SOM DE NOTIFICAÇÃO =====
+                initNotificationSound() {
+                    try {
+                        // Som de notificação embutido (beep curto)
+                        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                        this.msgSound = {
+                            play: () => {
+                                try {
+                                    const osc = audioCtx.createOscillator();
+                                    const gain = audioCtx.createGain();
+                                    osc.connect(gain);
+                                    gain.connect(audioCtx.destination);
+
+                                    osc.frequency.setValueAtTime(800, audioCtx.currentTime);
+                                    osc.frequency.exponentialRampToValueAtTime(1200, audioCtx.currentTime + 0.08);
+
+                                    gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+                                    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.15);
+
+                                    osc.start(audioCtx.currentTime);
+                                    osc.stop(audioCtx.currentTime + 0.15);
+                                } catch(e) {}
+                            }
+                        };
+                    } catch(e) {
+                        console.log('AudioContext not available for notifications');
+                    }
+                },
+
+                playNotificationSound() {
+                    // Só toca se a última mensagem foi há mais de 2 segundos
+                    const now = Date.now();
+                    if (now - this.lastMsgTime > 2000) {
+                        this.lastMsgTime = now;
+                        if (this.msgSound) {
+                            this.msgSound.play();
+                        }
+                    }
+                },
+
+                getBaseUrl() {
+                    return window.location.origin;
+                },
+
+                async checkAutoplayPolicy() {
+                    if (navigator.getAutoplayPolicy) {
+                        const policy = navigator.getAutoplayPolicy('mediaelement');
+                        if (policy === 'disallowed') {
+                            this.autoplayBlocked = true;
+                        }
+                        return;
+                    }
+                    if (this.isMobile || this.isSafari) {
+                        const testAudio = new Audio();
+                        testAudio.volume = 0;
+                        try {
+                            await testAudio.play();
+                            testAudio.pause();
+                        } catch (err) {
+                            this.autoplayBlocked = true;
+                        }
+                    }
+                },
+
+                // ===== EVENT BINDING =====
+                bindEvents() {
+                    this.bindTouch(this.playBtn, (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        this.handleUserInteraction();
+                        this.togglePlay();
+                    });
+
+                    this.bindTouch(this.muteBtn, (e) => {
+                        e.preventDefault();
+                        this.handleUserInteraction();
+                        this.toggleMute();
+                    });
+
+                    this.volumeSlider.addEventListener('input', (e) => {
+                        this.setVolume(e.target.value);
+                    });
+
+                    this.bindTouch(this.progressBar, (e) => {
+                        e.preventDefault();
+                        const rect = this.progressBar.getBoundingClientRect();
+                        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+                        const percent = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+                        this.seek(percent);
+                    });
+
+                    if (this.startAudioBtn) {
+                        this.bindTouch(this.startAudioBtn, (e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            this.handleUserInteraction();
+                            this.hideInteractionOverlay();
+                            this.play();
+                        });
+                    }
+
+                    const firstInteraction = () => {
+                        this.handleUserInteraction();
+                        document.removeEventListener('touchstart', firstInteraction);
+                        document.removeEventListener('click', firstInteraction);
+                    };
+                    document.addEventListener('touchstart', firstInteraction, { once: true, passive: true });
+                    document.addEventListener('click', firstInteraction, { once: true });
+
+                    document.addEventListener('visibilitychange', () => {
+                        if (document.hidden) {
+                            this.pauseVisualizer();
+                        } else if (this.isPlaying) {
+                            this.startVisualizer();
+                        }
+                    });
+
+                    window.addEventListener('online', () => {
+                        this.showToast('Conexão restaurada');
+                    });
+
+                    window.addEventListener('offline', () => {
+                        this.showToast('Sem conexão com a internet');
+                        this.setStatus('offline', 'Sem conexão');
+                    });
+                },
+
+                handleUserInteraction() {
+                    if (!this.userInteracted) {
+                        this.userInteracted = true;
+                        if (this.isIOS || this.isSafari) {
+                            this.initAudioContext();
+                        }
+                    }
+                },
+
+                showInteractionOverlay() {
+                    if (this.interactionOverlay && this.autoplayBlocked && !this.userInteracted) {
+                        this.interactionOverlay.classList.add('show');
+                    }
+                },
+
+                hideInteractionOverlay() {
+                    if (this.interactionOverlay) {
+                        this.interactionOverlay.classList.remove('show');
+                    }
+                },
+
+                bindTouch(element, handler) {
+                    if (!element) return;
+                    element.addEventListener('pointerdown', (e) => { handler(e); });
+                    element.addEventListener('touchstart', (e) => {}, { passive: true });
+                    element.addEventListener('touchend', (e) => {
+                        e.preventDefault();
+                        handler(e);
+                    }, { passive: false });
+                    element.addEventListener('click', (e) => { handler(e); });
+                },
+
+                // ===== AUDIO EVENTS =====
+                setupAudioEvents() {
+                    const audio = this.audio;
+
+                    audio.addEventListener('play', () => {
+                        this.isPlaying = true;
+                        this.updatePlayButton();
+                        this.setStatus('online', 'AO VIVO');
+                        this.startVisualizer();
+                        this.hideInteractionOverlay();
+                        this.albumArt.classList.add('playing');
+                    });
+
+                    audio.addEventListener('pause', () => {
+                        this.isPlaying = false;
+                        this.updatePlayButton();
+                        this.stopVisualizer();
+                        this.albumArt.classList.remove('playing');
+                    });
+
+                    audio.addEventListener('ended', () => {
+                        // Rádio em tempo real: reconecta ao stream
+                        console.log('Stream ended, reconnecting...');
+                        this.reconnectStream();
+                    });
+
+                    audio.addEventListener('error', (e) => {
+                        console.error('Audio error:', e);
+                        this.handleAudioError();
+                    });
+
+                    audio.addEventListener('timeupdate', () => {
+                        this.updateProgress();
+                    });
+
+                    audio.addEventListener('waiting', () => {
+                        this.setStatus('buffering', 'Buffering...');
+                    });
+
+                    audio.addEventListener('canplay', () => {
+                        this.setStatus('online', 'AO VIVO');
+                        this.hideError();
+                    });
+
+                    audio.addEventListener('stalled', () => {
+                        this.setStatus('buffering', 'Reconectando...');
+                    });
+                },
+
+                handleAudioError() {
+                    const error = this.audio.error;
+                    let msg = 'Erro no stream.';
+                    if (error) {
+                        switch(error.code) {
+                            case 2: msg = 'Erro de rede. Reconectando...'; break;
+                            case 3: msg = 'Erro de decodificação.'; break;
+                            case 4: msg = 'Stream indisponível.'; break;
+                        }
+                    }
+                    this.showError(msg);
+                    this.setStatus('offline', 'Erro');
+                    this.stopVisualizer();
+                    setTimeout(() => this.reconnectStream(), 3000);
+                },
+
+                reconnectStream() {
+                    if (this.currentTrack) {
+                        this.audio.src = this.currentTrack;
+                        this.audio.load();
+                        this.play();
+                    }
+                },
+
+                initAudioContext() {
+                    try {
+                        const AudioContext = window.AudioContext || window.webkitAudioContext;
+                        if (AudioContext) {
+                            if (!this.audioContext) {
+                                this.audioContext = new AudioContext();
+                            }
+                            if (this.audioContext.state === 'suspended') {
+                                this.audioContext.resume();
+                            }
+                        }
+                    } catch (e) {}
+                },
+
+                // ===== STREAM EM TEMPO REAL =====
+                loadStream() {
+                    const baseUrl = this.getBaseUrl();
+                    const streamUrl = `${baseUrl}/stream`;
+                    this.currentTrack = streamUrl;
+
+                    this.audio.src = streamUrl;
+                    this.audio.load();
+                    console.log('Loading stream:', streamUrl);
+                },
+
+                togglePlay() {
+                    if (this.isPlaying) {
+                        this.pause();
+                    } else {
+                        this.play();
+                    }
+                },
+
+                play() {
+                    if (!this.audio.src || this.audio.src === window.location.href) {
+                        this.loadStream();
+                    }
+
+                    if ((this.isIOS || this.isSafari) && !this.userInteracted) {
+                        this.showInteractionOverlay();
+                        return;
+                    }
+
+                    if (this.isIOS || this.isSafari) {
+                        this.initAudioContext();
+                    }
+
+                    const playPromise = this.audio.play();
+
+                    if (playPromise !== undefined) {
+                        playPromise
+                            .then(() => {
+                                this.isPlaying = true;
+                                this.updatePlayButton();
+                                this.startVisualizer();
+                                this.hideInteractionOverlay();
+                                this.albumArt.classList.add('playing');
+                            })
+                            .catch(err => {
+                                if (err.name === 'NotAllowedError') {
+                                    this.autoplayBlocked = true;
+                                    this.showInteractionOverlay();
+                                    this.showToast('Toque em Play para ouvir');
+                                    this.setStatus('online', 'Toque para ouvir');
+                                } else {
+                                    this.showError('Erro no stream. Reconectando...');
+                                    setTimeout(() => this.reconnectStream(), 2000);
+                                }
+                            });
+                    }
+                },
+
+                pause() {
+                    this.audio.pause();
+                    this.isPlaying = false;
+                    this.updatePlayButton();
+                    this.stopVisualizer();
+                    this.albumArt.classList.remove('playing');
+                },
+
+                // ===== VOLUME =====
+                toggleMute() {
+                    if (this.isMuted) {
+                        this.audio.muted = false;
+                        this.isMuted = false;
+                        this.volumeSlider.value = this.previousVolume || 80;
+                        this.setVolume(this.volumeSlider.value);
+                        this.muteBtn.textContent = '🔊';
+                    } else {
+                        this.previousVolume = this.volumeSlider.value;
+                        this.audio.muted = true;
+                        this.isMuted = true;
+                        this.volumeSlider.value = 0;
+                        this.muteBtn.textContent = '🔇';
+                    }
+                },
+
+                setVolume(value) {
+                    const volume = Math.max(0, Math.min(100, parseInt(value) || 0)) / 100;
+                    this.audio.volume = volume;
+                    if (volume === 0) {
+                        this.muteBtn.textContent = '🔇';
+                        this.isMuted = true;
+                        this.audio.muted = true;
+                    } else {
+                        this.muteBtn.textContent = '🔊';
+                        this.isMuted = false;
+                        this.audio.muted = false;
+                    }
+                },
+
+                // ===== PROGRESS =====
+                seek(percent) {
+                    // Stream ao vivo não permite seek
+                },
+
+                updateProgress() {
+                    const current = this.audio.currentTime;
+                    this.currentTime.textContent = this.formatTime(current);
+                    // Progress bar animada para stream
+                    const fakePercent = ((current % 30) / 30) * 100;
+                    this.progressFill.style.width = `${fakePercent}%`;
+                },
+
+                formatTime(seconds) {
+                    if (!isFinite(seconds) || isNaN(seconds) || seconds < 0) return '0:00';
+                    const mins = Math.floor(seconds / 60);
+                    const secs = Math.floor(seconds % 60);
+                    return `${mins}:${secs.toString().padStart(2, '0')}`;
+                },
+
+                // ===== UI =====
+                updatePlayButton() {
+                    if (this.playBtn) {
+                        this.playBtn.textContent = this.isPlaying ? '⏸' : '▶';
+                    }
+                },
+
+                setStatus(type, text) {
+                    if (this.statusBadge && this.statusText) {
+                        this.statusBadge.className = `status-badge ${type}`;
+                        this.statusText.textContent = text;
+                    }
+                },
+
+                showError(message) {
+                    if (this.errorMessage) {
+                        this.errorMessage.textContent = message;
+                        this.errorMessage.classList.add('show');
+                        setTimeout(() => this.hideError(), 8000);
+                    }
+                },
+
+                hideError() {
+                    if (this.errorMessage) {
+                        this.errorMessage.classList.remove('show');
+                    }
+                },
+
+                showToast(message) {
+                    if (this.toast) {
+                        this.toast.textContent = message;
+                        this.toast.classList.add('show');
+                        setTimeout(() => {
+                            this.toast.classList.remove('show');
+                        }, 3000);
+                    }
+                },
+
+                escapeHtml(text) {
+                    if (!text) return '';
+                    const div = document.createElement('div');
+                    div.textContent = String(text);
+                    return div.innerHTML;
+                },
+
+                // ===== VISUALIZER =====
+                startVisualizer() {
+                    this.stopVisualizer();
+                    const bars = this.visualizer.querySelectorAll('.bar');
+                    if (!bars.length) return;
+                    this.visualizerInterval = setInterval(() => {
+                        bars.forEach((bar) => {
+                            const height = 4 + Math.random() * 22;
+                            bar.style.height = `${height}px`;
+                        });
+                    }, 100);
+                },
+
+                pauseVisualizer() {
+                    if (this.visualizerInterval) {
+                        clearInterval(this.visualizerInterval);
+                        this.visualizerInterval = null;
+                    }
+                },
+
+                stopVisualizer() {
+                    this.pauseVisualizer();
+                    const bars = this.visualizer.querySelectorAll('.bar');
+                    bars.forEach(bar => { bar.style.height = '4px'; });
+                },
+
+                // ===== WEBSOCKET =====
+                connectWebSocket() {
+                    if (this.wsReconnectTimer) {
+                        clearTimeout(this.wsReconnectTimer);
+                    }
+
+                    try {
+                        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                        const wsUrl = `${protocol}//${window.location.host}`;
+
+                        this.ws = new WebSocket(wsUrl);
+
+                        this.ws.onopen = () => {
+                            console.log('WebSocket connected');
+                            this.ws.send(JSON.stringify({ type: 'ping' }));
+                            this.loadStream();
+                            // Tenta autoplay após conectar
+                            setTimeout(() => {
+                                if (!this.isPlaying && !this.autoplayBlocked) {
+                                    this.play();
+                                }
+                            }, 500);
+                        };
+
+                        this.ws.onmessage = (event) => {
+                            try {
+                                const data = JSON.parse(event.data);
+                                this.handleWsMessage(data);
+                            } catch (e) {
+                                console.log('WS parse error:', e);
+                            }
+                        };
+
+                        this.ws.onerror = (err) => {
+                            console.log('WebSocket error:', err);
+                        };
+
+                        this.ws.onclose = () => {
+                            console.log('WebSocket closed, reconnecting in 5s...');
+                            this.wsReconnectTimer = setTimeout(() => {
+                                this.connectWebSocket();
+                            }, 5000);
+                        };
+
+                    } catch (e) {
+                        console.log('WebSocket not available:', e);
+                    }
+                },
+
+                handleWsMessage(data) {
+                    if (data.type === 'metadata' && data.data) {
+                        this.trackTitle.textContent = data.data.title || 'Rádio Amigos do Seu Zé';
+                        this.trackArtist.textContent = data.data.artist || 'Ponto de Umbanda';
+                    }
+                    if (data.type === 'state' && data.data) {
+                        const listeners = data.data.listeners || 0;
+                        this.setStatus('online', `AO VIVO · ${listeners} ouvinte${listeners !== 1 ? 's' : ''}`);
+                        this.updateChatStatus(listeners);
+                    }
+                    if (data.type === 'pong') {}
+
+                    // Chat messages
+                    if (data.type === 'chat' && data.name && data.message) {
+                        if (data.name !== this.chatUserName) {
+                            this.addChatMessage('other', data.name, data.message);
+                            this.playNotificationSound();
+                        }
+                    }
+                    if (data.type === 'system' && data.message) {
+                        this.addChatMessage('system', 'Sistema', data.message);
+                    }
+                    if (data.type === 'online_count') {
+                        this.updateChatStatus(data.count);
+                    }
+                    if (data.type === 'chat_history' && Array.isArray(data.data)) {
+                        data.data.forEach(msg => {
+                            if (msg.type === 'chat' && msg.name && msg.message) {
+                                const isOwn = msg.name === this.chatUserName;
+                                this.addChatMessage(isOwn ? 'own' : 'other', msg.name, msg.message, false);
+                            }
+                        });
+                    }
+                },
+
+                // ===== CHAT WHATSAPP =====
+                initChat() {
+                    const savedName = localStorage.getItem('zelar_radio_chat_name');
+                    if (savedName) {
+                        this.chatUserName = savedName;
+                        this.showChatInput();
+                        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                            this.ws.send(JSON.stringify({ type: 'join_chat', name: this.chatUserName }));
+                        }
+                    }
+
+                    this.bindTouch(this.chatNameBtn, (e) => {
+                        e.preventDefault();
+                        const name = this.chatNameField.value.trim();
+                        if (name) {
+                            this.chatUserName = name;
+                            localStorage.setItem('zelar_radio_chat_name', name);
+                            this.showChatInput();
+                            this.showToast(`Bem-vindo, ${name}!`);
+                            if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                                this.ws.send(JSON.stringify({ type: 'join_chat', name: this.chatUserName }));
+                            }
+                        }
+                    });
+
+                    this.chatNameField.addEventListener('keydown', (e) => {
+                        if (e.key === 'Enter') {
+                            e.preventDefault();
+                            this.chatNameBtn.click();
+                        }
+                    });
+
+                    this.bindTouch(this.chatSendBtn, (e) => {
+                        e.preventDefault();
+                        this.sendChatMessage();
+                    });
+
+                    this.chatInput.addEventListener('keydown', (e) => {
+                        if (e.key === 'Enter') {
+                            e.preventDefault();
+                            this.sendChatMessage();
+                        }
+                    });
+                },
+
+                showChatInput() {
+                    this.chatNameOverlay.style.display = 'none';
+                    this.chatInputArea.style.display = 'flex';
+                    this.chatInput.focus();
+                },
+
+                sendChatMessage() {
+                    const text = this.chatInput.value.trim();
+                    if (!text || !this.chatUserName) return;
+
+                    this.addChatMessage('own', this.chatUserName, text);
+                    this.chatInput.value = '';
+
+                    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                        this.ws.send(JSON.stringify({
+                            type: 'chat',
+                            name: this.chatUserName,
+                            message: text
+                        }));
+                    }
+                },
+
+                addChatMessage(type, name, text, animate = true) {
+                    const msgDiv = document.createElement('div');
+                    msgDiv.className = `chat-message ${type}`;
+                    if (!animate) msgDiv.style.animation = 'none';
+
+                    const time = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+
+                    if (type === 'system') {
+                        msgDiv.innerHTML = `<div class="chat-bubble">${this.escapeHtml(text)}</div>`;
+                    } else {
+                        const senderHtml = type === 'other' ? `<div class="msg-sender">${this.escapeHtml(name)}</div>` : '';
+                        const checks = type === 'own' ? '<span class="msg-checks read">✓✓</span>' : '';
+                        msgDiv.innerHTML = `
+                            ${senderHtml}
+                            <div class="chat-bubble">${this.escapeHtml(text)}<div class="chat-meta">${time} ${checks}</div></div>
+                        `;
+                    }
+                    this.chatMessages.appendChild(msgDiv);
+                    this.chatMessages.scrollTop = this.chatMessages.scrollHeight;
+                },
+
+                updateChatStatus(count) {
+                    if (this.chatStatusText) {
+                        this.chatStatusText.textContent = `${count} ouvinte${count !== 1 ? 's' : ''} online`;
+                    }
+                },
+
+                // ===== DESTROY =====
+                destroy() {
+                    this.stopVisualizer();
+                    if (this.ws) { this.ws.close(); }
+                    if (this.wsReconnectTimer) { clearTimeout(this.wsReconnectTimer); }
+                    if (this.audio) {
+                        this.audio.pause();
+                        this.audio.src = '';
+                    }
+                    if (this.audioContext) { this.audioContext.close(); }
+                }
+            };
+
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', () => RadioPlayer.init());
+            } else {
+                RadioPlayer.init();
+            }
+
+            window.addEventListener('beforeunload', () => { RadioPlayer.destroy(); });
+            window.RadioPlayer = RadioPlayer;
+
+        })();
+
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('sw.js').catch(err => {
+                console.log('SW registration failed:', err);
+            });
+        }
+    </script>
 </body>
 </html>
